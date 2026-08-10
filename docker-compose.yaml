@@ -1,0 +1,71 @@
+# ============================================================================
+# BI_DWH + Apache Superset 6.1.0 (по ТЗ)
+# ============================================================================
+services:
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: bedrock_mssql_server
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
+      MSSQL_PID: ${MSSQL_PID}
+      MSSQL_AGENT_ENABLED: ${MSSQL_AGENT_ENABLED}
+    ports:
+      - "1433:1433"
+    volumes:
+      - mssql_data:/var/opt/mssql
+      - ./sql:/var/opt/mssql/scripts:ro
+      - ./data/csv:/import:ro
+    command: bash /var/opt/mssql/scripts/startup.sh
+    healthcheck:
+      test: /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "${MSSQL_SA_PASSWORD}" -C -Q "SELECT 1" || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  superset:
+    build:
+      context: ./superset
+    container_name: bedrock_superset_server
+    environment:
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY}
+      SUPERSET_CONFIG_PATH: ${SUPERSET_CONFIG_PATH}
+      # Подсказка URI для ручного подключения в UI
+      DWH_SQLALCHEMY_URI: "mssql+pymssql://sa:${MSSQL_SA_PASSWORD}@mssql:1433/BI_DWH"
+    ports:
+      - "8088:8088"
+    volumes:
+      - superset_data:/app/superset_home
+      - ./superset/superset_config.py:/app/pythonpath/superset_config.py:ro
+    depends_on:
+      mssql:
+        condition: service_healthy
+    command: >
+      /bin/bash -c "
+        superset db upgrade &&
+        superset fab create-admin --username admin --firstname Admin --lastname User --email admin@example.com --password admin || true &&
+        superset init &&
+        /usr/bin/run-server.sh
+      "
+
+  converter:
+    build:
+      context: ./converter
+    container_name: bedrock_excel_converter
+    restart: unless-stopped
+    volumes:
+      - ./data/excel:/data/excel:ro
+      - ./data/csv:/data/csv
+    healthcheck:
+        test: ["CMD", "python", "-c", "from pathlib import Path; assert Path('/data/excel').exists() and Path('/data/csv').exists()"]
+        interval: 30s
+        timeout: 5s
+        retries: 3
+    depends_on:
+      mssql:
+        condition: service_started
+
+volumes:
+  mssql_data:
+  superset_data:
