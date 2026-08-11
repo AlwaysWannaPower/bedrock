@@ -85,7 +85,7 @@ done
 # 4. Первичная / инкрементальная загрузка CSV из /import
 sleep 10
 echo "Running ETL pipeline..." | tee -a "$LOGFILE"
-run_sql_query "EXEC BI_DWH.elt.sp_load_staging_from_import;"
+run_sql_query "EXEC BI_DWH.elt.sp_load_staging_from_import; EXEC BI_DWH.elt.sp_validate_turnover;"
 
 # echo "Initialization complete!" | tee -a "$LOGFILE"
 

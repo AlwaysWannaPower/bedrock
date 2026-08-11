@@ -96,13 +96,13 @@
 --
 -- Создаваемые таблицы:
 --
---     staging.turnover_raw
+--     staging.turnover
 --         Сырая оборотная ведомость.
 --
---     staging.prices_raw
+--     staging.prices
 --         Сырые данные цен материалов.
 --
---     staging.warehouses_raw
+--     staging.warehouses
 --         Сырой реестр складов.
 --
 -- ============================================================================
@@ -115,7 +115,7 @@ GO
 
 -- ============================================================================
 -- ТАБЛИЦА №1
--- staging.turnover_raw
+-- staging.turnover
 --
 -- Назначение:
 --     Хранение исходных строк оборотной ведомости.
@@ -129,7 +129,7 @@ GO
 --     turnover_*.csv
 --           │
 --           ▼
---     staging.turnover_raw
+--     staging.turnover
 --
 -- Здесь пока НЕ происходит понимания того, является ли:
 --
@@ -157,10 +157,10 @@ GO
 -- скрипт можно запустить заново и получить чистую структуру.
 -- ============================================================================
 
-IF OBJECT_ID(N'staging.turnover_raw', N'U') IS NOT NULL
+IF OBJECT_ID(N'staging.turnover', N'U') IS NOT NULL
 BEGIN
 
-    DROP TABLE staging.turnover_raw;
+    DROP TABLE staging.turnover;
 
 END;
 GO
@@ -168,10 +168,10 @@ GO
 
 
 -- ============================================================================
--- Создаём staging.turnover_raw
+-- Создаём staging.turnover
 -- ============================================================================
 
-CREATE TABLE staging.turnover_raw
+CREATE TABLE staging.turnover
 (
     -- ========================================================================
     -- Технический идентификатор строки
@@ -215,7 +215,7 @@ CREATE TABLE staging.turnover_raw
     -- Благодаря этому можно выполнить:
     --
     --     SELECT *
-    --     FROM staging.turnover_raw
+    --     FROM staging.turnover
     --     WHERE file_name = N'turnover_2026_07.csv';
     --
     -- Это называется data lineage:
@@ -267,6 +267,11 @@ CREATE TABLE staging.turnover_raw
 
     warehouse_code NVARCHAR(100) NULL,
 
+     -- Идентификатор материала.
+    material_id NVARCHAR(100) NULL,
+
+    -- Базовая единица измерения материала.
+    unit NVARCHAR(100) NULL,
 
     -- Остаток на начало периода.
     balance_start NVARCHAR(100) NULL,
@@ -288,14 +293,6 @@ CREATE TABLE staging.turnover_raw
     balance_end NVARCHAR(100) NULL,
 
 
-    -- Базовая единица измерения материала.
-    unit NVARCHAR(100) NULL,
-
-
-    -- Идентификатор материала.
-    material_id NVARCHAR(100) NULL,
-
-
     -- ========================================================================
     -- PRIMARY KEY
     -- ========================================================================
@@ -304,7 +301,7 @@ CREATE TABLE staging.turnover_raw
     --
     -- CONSTRAINT получает явное имя:
     --
-    --     PK_staging_turnover_raw
+    --     PK_staging_turnover
     --
     -- Именованные ограничения удобны для:
     --
@@ -315,7 +312,7 @@ CREATE TABLE staging.turnover_raw
     --     - явной ссылки на конкретное ограничение.
     -- ========================================================================
 
-    CONSTRAINT PK_staging_turnover_raw
+    CONSTRAINT PK_staging_turnover
         PRIMARY KEY (load_id)
 );
 GO
@@ -324,7 +321,7 @@ GO
 
 -- ============================================================================
 -- ТАБЛИЦА №2
--- staging.prices_raw
+-- staging.prices
 --
 -- Назначение:
 --     Хранение исходных данных о ценах материалов.
@@ -334,9 +331,9 @@ GO
 --     prices_*.csv
 --          │
 --          ▼
---     staging.prices_raw
+--     staging.prices
 --
--- Как и в turnover_raw, здесь все значения исходного файла
+-- Как и в turnover, здесь все значения исходного файла
 -- сохраняются как NVARCHAR.
 -- ============================================================================
 
@@ -345,10 +342,10 @@ GO
 -- Удаляем существующую таблицу
 -- ============================================================================
 
-IF OBJECT_ID(N'staging.prices_raw', N'U') IS NOT NULL
+IF OBJECT_ID(N'staging.prices', N'U') IS NOT NULL
 BEGIN
 
-    DROP TABLE staging.prices_raw;
+    DROP TABLE staging.prices;
 
 END;
 GO
@@ -356,10 +353,10 @@ GO
 
 
 -- ============================================================================
--- Создаём staging.prices_raw
+-- Создаём staging.prices
 -- ============================================================================
 
-CREATE TABLE staging.prices_raw
+CREATE TABLE staging.prices
 (
     -- Технический идентификатор строки staging.
     load_id INT IDENTITY(1,1) NOT NULL,
@@ -397,7 +394,7 @@ CREATE TABLE staging.prices_raw
 
 
     -- Именованный первичный ключ таблицы.
-    CONSTRAINT PK_staging_prices_raw
+    CONSTRAINT PK_staging_prices
         PRIMARY KEY (load_id)
 );
 GO
@@ -406,7 +403,7 @@ GO
 
 -- ============================================================================
 -- ТАБЛИЦА №3
--- staging.warehouses_raw
+-- staging.warehouses
 --
 -- Назначение:
 --     Хранение исходного реестра складов.
@@ -416,7 +413,7 @@ GO
 --     warehouses.csv
 --          │
 --          ▼
---     staging.warehouses_raw
+--     staging.warehouses
 --
 -- Здесь сохраняются исходные значения без попытки определить,
 -- корректны они или нет.
@@ -427,10 +424,10 @@ GO
 -- Удаляем существующую таблицу
 -- ============================================================================
 
-IF OBJECT_ID(N'staging.warehouses_raw', N'U') IS NOT NULL
+IF OBJECT_ID(N'staging.warehouses', N'U') IS NOT NULL
 BEGIN
 
-    DROP TABLE staging.warehouses_raw;
+    DROP TABLE staging.warehouses;
 
 END;
 GO
@@ -438,10 +435,10 @@ GO
 
 
 -- ============================================================================
--- Создаём staging.warehouses_raw
+-- Создаём staging.warehouses
 -- ============================================================================
 
-CREATE TABLE staging.warehouses_raw
+CREATE TABLE staging.warehouses
 (
     -- Технический идентификатор строки.
     load_id INT IDENTITY(1,1) NOT NULL,
@@ -490,7 +487,7 @@ CREATE TABLE staging.warehouses_raw
 
 
     -- Именованный первичный ключ таблицы.
-    CONSTRAINT PK_staging_warehouses_raw
+    CONSTRAINT PK_staging_warehouses
         PRIMARY KEY (load_id)
 );
 GO
@@ -508,7 +505,7 @@ GO
 --       │
 --       └── staging
 --             │
---             ├── turnover_raw
+--             ├── turnover
 --             │     ├── load_id
 --             │     ├── file_name
 --             │     ├── date
@@ -522,7 +519,7 @@ GO
 --             │     ├── unit
 --             │     └── material_id
 --             │
---             ├── prices_raw
+--             ├── prices
 --             │     ├── load_id
 --             │     ├── file_name
 --             │     ├── date
@@ -531,7 +528,7 @@ GO
 --             │     ├── material_id
 --             │     └── price
 --             │
---             └── warehouses_raw
+--             └── warehouses
 --                   ├── load_id
 --                   ├── file_name
 --                   ├── date

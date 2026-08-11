@@ -3,7 +3,7 @@
 --
 -- Назначение:
 --     Непосредственная загрузка одного CSV-файла оборотной ведомости
---     в staging.turnover_raw.
+--     в staging.turnover.
 --
 -- Архитектурная роль:
 --
@@ -31,7 +31,7 @@
 --
 --     и выполняет одну конкретную задачу:
 --
---         CSV → staging.turnover_raw
+--         CSV → staging.turnover
 --
 --
 -- Схема:
@@ -43,7 +43,7 @@
 --                 │
 --                 │ BULK INSERT
 --                 ▼
---       staging.turnover_raw
+--       staging.turnover
 --
 --
 -- ВАЖНО:
@@ -99,7 +99,7 @@ BEGIN
         --
         -- Почему сначала временная таблица?
         --
-        -- Потому что staging.turnover_raw содержит технические поля:
+        -- Потому что staging.turnover содержит технические поля:
         --
         --     load_id
         --     file_name
@@ -123,16 +123,16 @@ BEGIN
 
         CREATE TABLE #bulk_turnover
         (
-            date NVARCHAR(100) NULL,
-            start_date NVARCHAR(100) NULL,
-            end_date NVARCHAR(100) NULL,
-            warehouse_code NVARCHAR(100) NULL,
-            balance_start NVARCHAR(100) NULL,
-            income_qty NVARCHAR(100) NULL,
-            expense_qty NVARCHAR(100) NULL,
-            balance_end NVARCHAR(100) NULL,
-            unit NVARCHAR(100) NULL,
-            material_id NVARCHAR(100) NULL
+            date            NVARCHAR(100) NULL,
+            start_date      NVARCHAR(100) NULL,
+            end_date        NVARCHAR(100) NULL,
+            warehouse_code  NVARCHAR(100) NULL,
+            material_id     NVARCHAR(100) NULL,
+            unit            NVARCHAR(100) NULL,
+            balance_start   NVARCHAR(100) NULL,
+            income_qty      NVARCHAR(100) NULL,
+            expense_qty     NVARCHAR(100) NULL,
+            balance_end     NVARCHAR(100) NULL
         );
 
 
@@ -190,19 +190,19 @@ BEGIN
         -- Это сохраняет происхождение каждой строки.
         -- ====================================================================
 
-        INSERT INTO staging.turnover_raw
+        INSERT INTO staging.turnover
         (
             file_name,
             date,
             start_date,
             end_date,
             warehouse_code,
+            material_id,
+            unit,
             balance_start,
             income_qty,
             expense_qty,
-            balance_end,
-            unit,
-            material_id
+            balance_end
         )
         SELECT
             @file_path,
@@ -210,15 +210,13 @@ BEGIN
             start_date,
             end_date,
             warehouse_code,
+            material_id,
+            unit,
             balance_start,
             income_qty,
             expense_qty,
-            balance_end,
-            unit,
-            material_id
+            balance_end
         FROM #bulk_turnover;
-
-
         -- ====================================================================
         -- Завершение
         --
@@ -277,11 +275,11 @@ GO
 --
 -- Назначение:
 --     Непосредственная загрузка одного CSV-файла цен
---     в staging.prices_raw.
+--     в staging.prices.
 --
 -- Архитектурная роль:
 --
---     CSV → #bulk_prices → staging.prices_raw
+--     CSV → #bulk_prices → staging.prices
 --
 --     Процедура работает только с одним конкретным файлом.
 --
@@ -390,7 +388,7 @@ BEGIN
         -- Перенос из bulk-таблицы в RAW staging.
         -- ====================================================================
 
-        INSERT INTO staging.prices_raw
+        INSERT INTO staging.prices
         (
             file_name,
             date,
@@ -434,11 +432,11 @@ GO
 --
 -- Назначение:
 --     Непосредственная загрузка одного CSV-файла складов
---     в staging.warehouses_raw.
+--     в staging.warehouses.
 --
 -- Архитектурная роль:
 --
---     CSV → #bulk_warehouses → staging.warehouses_raw
+--     CSV → #bulk_warehouses → staging.warehouses
 --
 --     Это специализированный загрузчик структуры warehouses.
 --
@@ -513,7 +511,7 @@ BEGIN
 
 
         -- ====================================================================
-        -- Переносим данные в staging.warehouses_raw.
+        -- Переносим данные в staging.warehouses.
         --
         -- load_id создаётся автоматически через IDENTITY.
         --
@@ -522,7 +520,7 @@ BEGIN
         --     строка staging → исходный файл.
         -- ====================================================================
 
-        INSERT INTO staging.warehouses_raw
+        INSERT INTO staging.warehouses
         (
             file_name,
             date,

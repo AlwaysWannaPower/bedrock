@@ -31,8 +31,7 @@ BEGIN TRY
         @subsystem = N'TSQL',
         @database_name = N'BI_DWH',
         @command = N'
-EXEC etl.sp_load_staging_from_import;
-EXEC etl.sp_etl_master;
+EXEC BI_DWH.elt.sp_load_staging_from_import;
 ',
         @on_success_action = 1, -- Quit with success
         @on_fail_action = 2;    -- Quit with failure
