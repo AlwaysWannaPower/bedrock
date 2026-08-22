@@ -16,73 +16,72 @@ BEGIN
         -- 1. STAGING -> нормальные типы
         -- ====================================================================
 
-        SELECT
-            s.load_id,
-            s.file_name,
+        SELECT s.load_id,
+               s.file_name,
 
-            -- ------------------------------------------------------------
-            -- Исходные значения.
-            -- Нужны для QUARANTINE.
-            -- ------------------------------------------------------------
+               -- ------------------------------------------------------------
+               -- Исходные значения.
+               -- Нужны для QUARANTINE.
+               -- ------------------------------------------------------------
 
-            s.date          AS raw_date,
-            s.start_date    AS raw_start_date,
-            s.end_date      AS raw_end_date,
-            s.material_id   AS raw_material_id,
-            s.price         AS raw_price,
+               s.date        AS raw_date,
+               s.start_date  AS raw_start_date,
+               s.end_date    AS raw_end_date,
+               s.material_id AS raw_material_id,
+               s.price       AS raw_price,
 
-            -- ------------------------------------------------------------
-            -- Преобразованные значения.
-            -- ------------------------------------------------------------
+               -- ------------------------------------------------------------
+               -- Преобразованные значения.
+               -- ------------------------------------------------------------
 
-            TRY_CONVERT(
-                DATE,
-                DATEADD(
-                    DAY,
-                    TRY_CONVERT(
-                        INT,
-                        TRY_CONVERT(DECIMAL(18,2), s.date)
-                    ),
-                    '1899-12-30'
-                )
-            ) AS date,
+               TRY_CONVERT(
+                   DATE,
+                       DATEADD(
+                               DAY,
+                               TRY_CONVERT(
+                                   INT,
+                                       TRY_CONVERT(DECIMAL(18, 2), s.date)
+                               ),
+                               '1899-12-30'
+                       )
+               )             AS date,
 
-            TRY_CONVERT(
-                DATE,
-                DATEADD(
-                    DAY,
-                    TRY_CONVERT(
-                        INT,
-                        TRY_CONVERT(DECIMAL(18,2), s.start_date)
-                    ),
-                    '1899-12-30'
-                )
-            ) AS start_date,
+               TRY_CONVERT(
+                   DATE,
+                       DATEADD(
+                               DAY,
+                               TRY_CONVERT(
+                                   INT,
+                                       TRY_CONVERT(DECIMAL(18, 2), s.start_date)
+                               ),
+                               '1899-12-30'
+                       )
+               )             AS start_date,
 
-            TRY_CONVERT(
-                DATE,
-                DATEADD(
-                    DAY,
-                    TRY_CONVERT(
-                        INT,
-                        TRY_CONVERT(DECIMAL(18,2), s.end_date)
-                    ),
-                    '1899-12-30'
-                )
-            ) AS end_date,
+               TRY_CONVERT(
+                   DATE,
+                       DATEADD(
+                               DAY,
+                               TRY_CONVERT(
+                                   INT,
+                                       TRY_CONVERT(DECIMAL(18, 2), s.end_date)
+                               ),
+                               '1899-12-30'
+                       )
+               )             AS end_date,
 
-            TRY_CONVERT(
-                INT,
-                TRY_CONVERT(
-                    DECIMAL(18,2),
-                    s.material_id
-                )
-            ) AS material_id,
+               TRY_CONVERT(
+                   INT,
+                       TRY_CONVERT(
+                           DECIMAL(18, 2),
+                               s.material_id
+                       )
+               )             AS material_id,
 
-            TRY_CONVERT(
-                DECIMAL(18,2),
-                s.price
-            ) AS price
+               TRY_CONVERT(
+                   DECIMAL(18, 2),
+                       s.price
+               )             AS price
 
         INTO #data
         FROM staging.prices AS s;
@@ -93,7 +92,7 @@ BEGIN
         -- ====================================================================
 
         ALTER TABLE #data
-        ADD error_reason NVARCHAR(700) NULL;
+            ADD error_reason NVARCHAR(700) NULL;
 
 
         -- ====================================================================
@@ -102,104 +101,85 @@ BEGIN
 
         UPDATE #data
         SET error_reason =
-            NULLIF(
-                CONCAT_WS(
-                    N'; ',
+                NULLIF(
+                        CONCAT_WS(
+                                N'; ',
+                            -- --------------------------------------------------------
+                            -- Ошибки преобразования
+                            -- --------------------------------------------------------
 
-                    -- --------------------------------------------------------
-                    -- Ошибки преобразования
-                    -- --------------------------------------------------------
+                                CASE
+                                    WHEN date IS NULL
+                                        THEN N'Некорректная date'
+                                    END,
+                                CASE
+                                    WHEN start_date IS NULL
+                                        THEN N'Некорректная start_date'
+                                    END,
+                                CASE
+                                    WHEN end_date IS NULL
+                                        THEN N'Некорректная end_date'
+                                    END,
+                                CASE
+                                    WHEN material_id IS NULL
+                                        THEN N'Некорректный material_id'
+                                    END,
+                                CASE
+                                    WHEN price IS NULL
+                                        THEN N'Некорректный price'
+                                    END,
+                            -- --------------------------------------------------------
+                            -- Бизнес-правила
+                            -- --------------------------------------------------------
 
-                    CASE
-                        WHEN date IS NULL
-                        THEN N'Некорректная date'
-                    END,
+                                CASE
+                                    WHEN start_date IS NOT NULL
+                                        AND end_date IS NOT NULL
+                                        AND start_date > end_date
+                                        THEN N'start_date > end_date'
+                                    END,
 
-                    CASE
-                        WHEN start_date IS NULL
-                        THEN N'Некорректная start_date'
-                    END,
-
-                    CASE
-                        WHEN end_date IS NULL
-                        THEN N'Некорректная end_date'
-                    END,
-
-                    CASE
-                        WHEN material_id IS NULL
-                        THEN N'Некорректный material_id'
-                    END,
-
-                    CASE
-                        WHEN price IS NULL
-                        THEN N'Некорректный price'
-                    END,
-
-
-                    -- --------------------------------------------------------
-                    -- Бизнес-правила
-                    -- --------------------------------------------------------
-
-                    CASE
-                        WHEN start_date IS NOT NULL
-                         AND end_date IS NOT NULL
-                         AND start_date > end_date
-                        THEN N'start_date > end_date'
-                    END,
-
-                    -- date = день после окончания периода
-                    CASE
-                        WHEN date IS NOT NULL
-                         AND end_date IS NOT NULL
-                         AND date <> DATEADD(DAY, 1, end_date)
-                        THEN N'date не соответствует окончанию периода'
-                    END,
-
-                    CASE
-                        WHEN material_id IS NOT NULL
-                         AND material_id <= 0
-                        THEN N'material_id <= 0'
-                    END,
-
-                    CASE
-                        WHEN price IS NOT NULL
-                         AND price <= 0
-                        THEN N'price <= 0'
-                    END
-
-                ),
-                N''
-            );
+                                CASE
+                                    WHEN material_id IS NOT NULL
+                                        AND material_id <= 0
+                                        THEN N'material_id <= 0'
+                                    END,
+                                CASE
+                                    WHEN price IS NOT NULL
+                                        AND price <= 0
+                                        THEN N'price <= 0'
+                                    END
+                        ),
+                        N''
+                );
 
 
         -- ====================================================================
         -- 4. Дубликаты внутри STAGING
         -- ====================================================================
 
-        ;WITH duplicates AS
-        (
-            SELECT
-                load_id,
 
-                ROW_NUMBER() OVER
-                (
-                    PARTITION BY
-                        date,
-                        material_id,
-                        start_date,
-                        end_date
+        WITH duplicates AS
+                 (SELECT load_id,
 
-                    ORDER BY load_id
-                ) AS rn
+                         ROW_NUMBER() OVER
+                             (
+                             PARTITION BY
+                             date,
+                             material_id,
+                             start_date,
+                             end_date
+                             ORDER BY load_id
+                             ) AS rn
 
-            FROM #data
-            WHERE error_reason IS NULL
-        )
+                  FROM #data
+                  WHERE error_reason IS NULL)
+
         UPDATE d
         SET error_reason = N'Дубликат строки в staging'
         FROM #data AS d
-        INNER JOIN duplicates AS x
-            ON x.load_id = d.load_id
+                 INNER JOIN duplicates AS x
+                            ON x.load_id = d.load_id
         WHERE x.rn > 1;
 
 
@@ -213,14 +193,12 @@ BEGIN
         WHERE d.error_reason IS NULL
 
           AND EXISTS
-          (
-              SELECT 1
-              FROM ods.prices AS o
-              WHERE o.date        = d.date
-                AND o.material_id = d.material_id
-                AND o.start_date  = d.start_date
-                AND o.end_date    = d.end_date
-          );
+            (SELECT 1
+             FROM ods.prices AS o
+             WHERE o.date = d.date
+               AND o.material_id = d.material_id
+               AND o.start_date = d.start_date
+               AND o.end_date = d.end_date);
 
 
         -- ====================================================================
@@ -230,29 +208,24 @@ BEGIN
         -- ====================================================================
 
         INSERT INTO quarantine.prices
-        (
-            load_id,
-            file_name,
-            error_reason,
+        (load_id,
+         file_name,
+         error_reason,
+         date,
+         start_date,
+         end_date,
+         material_id,
+         price)
+        SELECT load_id,
+               file_name,
+               error_reason,
 
-            date,
-            start_date,
-            end_date,
+               raw_date,
+               raw_start_date,
+               raw_end_date,
 
-            material_id,
-            price
-        )
-        SELECT
-            load_id,
-            file_name,
-            error_reason,
-
-            raw_date,
-            raw_start_date,
-            raw_end_date,
-
-            raw_material_id,
-            raw_price
+               raw_material_id,
+               raw_price
 
         FROM #data
         WHERE error_reason IS NOT NULL;
@@ -265,21 +238,18 @@ BEGIN
         -- ====================================================================
 
         INSERT INTO ods.prices
-        (
-            staging_load_id,
-            date,
-            start_date,
-            end_date,
-            material_id,
-            price
-        )
-        SELECT
-            load_id,
-            date,
-            start_date,
-            end_date,
-            material_id,
-            price
+        (staging_load_id,
+         date,
+         start_date,
+         end_date,
+         material_id,
+         price)
+        SELECT load_id,
+               date,
+               start_date,
+               end_date,
+               material_id,
+               price
 
         FROM #data
         WHERE error_reason IS NULL;
@@ -292,7 +262,6 @@ BEGIN
         COMMIT TRANSACTION;
 
     END TRY
-
     BEGIN CATCH
 
         IF @@TRANCOUNT > 0
