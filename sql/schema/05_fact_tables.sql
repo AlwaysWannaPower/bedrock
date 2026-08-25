@@ -1,7 +1,20 @@
 -- ============================================================================
 -- Файл: 05_fact_tables.sql
--- Описание: Фактовые таблицы DWH.
+--
+-- Назначение:
+-- Создание фактовых таблиц DWH.
+--
+-- Таблицы:
+--   1. dwh.fact_inventory
+--   2. dwh.fact_prices
+--
+-- Важно:
+-- Все PRIMARY KEY, UNIQUE и FOREIGN KEY создаются непосредственно
+-- внутри CREATE TABLE.
+--
+-- Благодаря этому каждый объект создаётся только один раз.
 -- ============================================================================
+
 
 USE BI_DWH;
 GO
@@ -11,132 +24,268 @@ GO
 -- FACT INVENTORY
 --
 -- Гранулярность:
--- одна строка = материал + склад + отчётный период
+--
+--   одна строка = один материал + один склад + один отчётный период
+--
+-- Бизнес-ключ:
+--
+--   date_key_start
+--   date_key_end
+--   warehouse_sk
+--   material_sk
+--
+-- То есть одна комбинация материала, склада и периода
+-- может существовать только один раз.
 -- ============================================================================
 
-USE BI_DWH;
-GO
-
 IF OBJECT_ID('dwh.fact_inventory', 'U') IS NULL
-    CREATE TABLE dwh.fact_inventory
-(
-    inventory_sk INT IDENTITY(1,1) NOT NULL,
+    BEGIN
 
-    date_key_start INT NOT NULL,
-    date_key_end   INT NOT NULL,
-
-    warehouse_sk INT NOT NULL,
-    material_sk  INT NOT NULL,
-
-    balance_start DECIMAL(18,2) NULL,
-    income_qty    DECIMAL(18,2) NULL,
-    expense_qty   DECIMAL(18,2) NULL,
-    balance_end   DECIMAL(18,2) NULL,
-
-    created_at DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
-
-    CONSTRAINT PK_fact_inventory
-        PRIMARY KEY (inventory_sk),
-
-    CONSTRAINT UQ_fact_inventory_business
-        UNIQUE
+        CREATE TABLE dwh.fact_inventory
         (
-            date_key_start,
-            date_key_end,
-            warehouse_sk,
-            material_sk
-        ),
+            -- ====================================================================
+            -- Технический surrogate key факта.
+            --
+            -- Он не является бизнес-ключом.
+            -- Нужен для уникальной идентификации строки внутри DWH.
+            -- ====================================================================
 
-    CONSTRAINT FK_fact_inventory_date_start
-        FOREIGN KEY (date_key_start)
-        REFERENCES dwh.dim_date(date_key),
+            inventory_sk   INT IDENTITY (1,1) NOT NULL,
 
-    CONSTRAINT FK_fact_inventory_date_end
-        FOREIGN KEY (date_key_end)
-        REFERENCES dwh.dim_date(date_key),
 
-    CONSTRAINT FK_fact_inventory_warehouse
-        FOREIGN KEY (warehouse_sk)
-        REFERENCES dwh.dim_warehouse(warehouse_sk),
+            -- ====================================================================
+            -- Период отчёта.
+            --
+            -- Значения являются surrogate key из dwh.dim_date.
+            -- ====================================================================
 
-    CONSTRAINT FK_fact_inventory_material
-        FOREIGN KEY (material_sk)
-        REFERENCES dwh.dim_material(material_sk)
-);
+            date_key_start INT                NOT NULL,
+            date_key_end   INT                NOT NULL,
+
+
+            -- ====================================================================
+            -- Ссылки на измерения.
+            -- ====================================================================
+
+            warehouse_sk   INT                NOT NULL,
+            material_sk    INT                NOT NULL,
+
+
+            -- ====================================================================
+            -- Меры.
+            --
+            -- NULL разрешён, поскольку конкретное значение может отсутствовать
+            -- в исходных данных.
+            -- ====================================================================
+
+            balance_start  DECIMAL(18, 2)     NULL,
+            income_qty     DECIMAL(18, 2)     NULL,
+            expense_qty    DECIMAL(18, 2)     NULL,
+            balance_end    DECIMAL(18, 2)     NULL,
+
+
+            -- ====================================================================
+            -- Техническое поле.
+            --
+            -- Фиксирует момент попадания записи в DWH.
+            -- ====================================================================
+
+            created_at     DATETIME2          NOT NULL
+                DEFAULT SYSDATETIME(),
+
+
+            -- ====================================================================
+            -- PRIMARY KEY
+            --
+            -- Технический идентификатор строки.
+            -- ====================================================================
+
+            CONSTRAINT PK_fact_inventory
+                PRIMARY KEY (inventory_sk),
+
+
+            -- ====================================================================
+            -- BUSINESS UNIQUE KEY
+            --
+            -- Не допускает появления двух фактов
+            -- для одной комбинации:
+            --
+            --   период + склад + материал
+            --
+            -- Именно это ограничение защищает DWH от физических дублей.
+            -- ====================================================================
+
+            CONSTRAINT UQ_fact_inventory_business
+                UNIQUE
+                    (
+                     date_key_start,
+                     date_key_end,
+                     warehouse_sk,
+                     material_sk
+                        ),
+
+
+            -- ====================================================================
+            -- FOREIGN KEY: начало периода
+            --
+            -- Значение должно существовать в календаре.
+            -- ====================================================================
+
+            CONSTRAINT FK_fact_inventory_date_start
+                FOREIGN KEY (date_key_start)
+                    REFERENCES dwh.dim_date (date_key),
+
+
+            -- ====================================================================
+            -- FOREIGN KEY: конец периода
+            -- ====================================================================
+
+            CONSTRAINT FK_fact_inventory_date_end
+                FOREIGN KEY (date_key_end)
+                    REFERENCES dwh.dim_date (date_key),
+
+
+            -- ====================================================================
+            -- FOREIGN KEY: склад
+            -- ====================================================================
+
+            CONSTRAINT FK_fact_inventory_warehouse
+                FOREIGN KEY (warehouse_sk)
+                    REFERENCES dwh.dim_warehouse (warehouse_sk),
+
+
+            -- ====================================================================
+            -- FOREIGN KEY: материал
+            -- ====================================================================
+
+            CONSTRAINT FK_fact_inventory_material
+                FOREIGN KEY (material_sk)
+                    REFERENCES dwh.dim_material (material_sk)
+
+        );
+
+    END;
 GO
+
+
 -- ============================================================================
 -- FACT PRICES
 --
 -- Гранулярность:
--- одна строка = материал + отчётный период + цена
 --
--- История цены сохраняется естественным образом:
--- новый период = новая строка факта.
+--   одна строка = один материал + один отчётный период
+--
+-- Бизнес-ключ:
+--
+--   date_key_start
+--   date_key_end
+--   material_sk
+--
+-- Цена является мерой факта.
+--
+-- История цены хранится на уровне периодов:
+--
+--   апрель 2024 -> одна запись
+--   май 2024    -> другая запись
+--   июнь 2024   -> третья запись
+--
+-- Поэтому отдельная SCD2-механика для этой таблицы не требуется,
+-- если бизнес-смысл исходных данных именно "цена за отчётный период".
 -- ============================================================================
 
 IF OBJECT_ID('dwh.fact_prices', 'U') IS NULL
-    CREATE TABLE dwh.fact_prices
-(
-    price_sk INT IDENTITY(1,1) NOT NULL,
+    BEGIN
 
-    -- Измерения
-    date_key_start INT NOT NULL,
-    date_key_end   INT NOT NULL,
-    material_sk    INT NOT NULL,
-
-    -- Мера
-    price DECIMAL(18,2) NOT NULL,
-
-    -- Технические поля
-    created_at DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
-
-    CONSTRAINT PK_fact_prices
-        PRIMARY KEY (price_sk),
-
-    CONSTRAINT UQ_fact_prices_business
-        UNIQUE
+        CREATE TABLE dwh.fact_prices
         (
-            date_key_start,
-            date_key_end,
-            material_sk
-        )
-);
-GO
--- ============================================================================
--- FOREIGN KEYS
--- ============================================================================
+            -- ====================================================================
+            -- Технический surrogate key.
+            -- ====================================================================
 
-ALTER TABLE dwh.fact_inventory
-ADD
-    CONSTRAINT FK_fact_inventory_date_start
-        FOREIGN KEY (date_key_start)
-        REFERENCES dwh.dim_date(date_key),
-
-    CONSTRAINT FK_fact_inventory_date_end
-        FOREIGN KEY (date_key_end)
-        REFERENCES dwh.dim_date(date_key),
-
-    CONSTRAINT FK_fact_inventory_warehouse
-        FOREIGN KEY (warehouse_sk)
-        REFERENCES dwh.dim_warehouse(warehouse_sk),
-
-    CONSTRAINT FK_fact_inventory_material
-        FOREIGN KEY (material_sk)
-        REFERENCES dwh.dim_material(material_sk);
-GO
+            price_sk       INT IDENTITY (1,1) NOT NULL,
 
 
-ALTER TABLE dwh.fact_prices
-ADD
-    CONSTRAINT FK_fact_prices_date_start
-        FOREIGN KEY (date_key_start)
-        REFERENCES dwh.dim_date(date_key),
+            -- ====================================================================
+            -- Период действия / отчётный период.
+            -- ====================================================================
 
-    CONSTRAINT FK_fact_prices_date_end
-        FOREIGN KEY (date_key_end)
-        REFERENCES dwh.dim_date(date_key),
+            date_key_start INT                NOT NULL,
+            date_key_end   INT                NOT NULL,
 
-    CONSTRAINT FK_fact_prices_material
-        FOREIGN KEY (material_sk)
-        REFERENCES dwh.dim_material(material_sk);
+
+            -- ====================================================================
+            -- Материал.
+            -- ====================================================================
+
+            material_sk    INT                NOT NULL,
+
+
+            -- ====================================================================
+            -- Мера.
+            -- ====================================================================
+
+            price          DECIMAL(18, 2)     NOT NULL,
+
+
+            -- ====================================================================
+            -- Техническое поле.
+            -- ====================================================================
+
+            created_at     DATETIME2          NOT NULL
+                DEFAULT SYSDATETIME(),
+
+
+            -- ====================================================================
+            -- PRIMARY KEY
+            -- ====================================================================
+
+            CONSTRAINT PK_fact_prices
+                PRIMARY KEY (price_sk),
+
+
+            -- ====================================================================
+            -- BUSINESS UNIQUE KEY
+            --
+            -- Не позволяет получить две цены
+            -- для одного материала и одного периода.
+            -- ====================================================================
+
+            CONSTRAINT UQ_fact_prices_business
+                UNIQUE
+                    (
+                     date_key_start,
+                     date_key_end,
+                     material_sk
+                        ),
+
+
+            -- ====================================================================
+            -- FOREIGN KEY: начало периода
+            -- ====================================================================
+
+            CONSTRAINT FK_fact_prices_date_start
+                FOREIGN KEY (date_key_start)
+                    REFERENCES dwh.dim_date (date_key),
+
+
+            -- ====================================================================
+            -- FOREIGN KEY: конец периода
+            -- ====================================================================
+
+            CONSTRAINT FK_fact_prices_date_end
+                FOREIGN KEY (date_key_end)
+                    REFERENCES dwh.dim_date (date_key),
+
+
+            -- ====================================================================
+            -- FOREIGN KEY: материал
+            -- ====================================================================
+
+            CONSTRAINT FK_fact_prices_material
+                FOREIGN KEY (material_sk)
+                    REFERENCES dwh.dim_material (material_sk)
+
+        );
+
+    END;
 GO

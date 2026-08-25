@@ -76,7 +76,7 @@ BEGIN
 
         PRINT '5/7 Load dim_warehouse...';
 
---         EXEC dwh.sp_load_dim_warehouse;
+        EXEC dwh.sp_load_dim_warehouse;
 
 
         -- ================================================================
@@ -86,7 +86,7 @@ BEGIN
 
         PRINT '6/7 Load fact_inventory...';
 
---         EXEC dwh.sp_load_fact_inventory;
+        EXEC dwh.sp_load_fact_inventory;
 
 
         -- ================================================================
@@ -96,7 +96,7 @@ BEGIN
 
         PRINT '7/7 Load fact_prices...';
 
---         EXEC dwh.sp_load_fact_prices;
+        EXEC dwh.sp_load_fact_prices;
 --
 
         PRINT '========================================';
