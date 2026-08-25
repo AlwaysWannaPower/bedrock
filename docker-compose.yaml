@@ -6,10 +6,20 @@ services:
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: bedrock_mssql_server
     environment:
+      # Базовые настройки SQL Server
       ACCEPT_EULA: "Y"
       MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
       MSSQL_PID: ${MSSQL_PID}
       MSSQL_AGENT_ENABLED: ${MSSQL_AGENT_ENABLED}
+      
+      # Настройки SMTP для Database Mail (прокидываем в контейнер)
+      SMTP_SERVER: ${SMTP_SERVER}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME}
+      SMTP_USERNAME: ${SMTP_USERNAME}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
     ports:
       - "1433:1433"
     volumes:
@@ -31,7 +41,6 @@ services:
     environment:
       SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY}
       SUPERSET_CONFIG_PATH: ${SUPERSET_CONFIG_PATH}
-      # Подсказка URI для ручного подключения в UI
       DWH_SQLALCHEMY_URI: "mssql+pymssql://sa:${MSSQL_SA_PASSWORD}@mssql:1433/BI_DWH"
     ports:
       - "8088:8088"
