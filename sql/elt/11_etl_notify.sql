@@ -8,7 +8,7 @@
 USE BI_DWH;
 GO
 
-IF OBJECT_ID('etl.alert_queue', 'U') IS NULL
+IF OBJECT_ID('elt.alert_queue', 'U') IS NULL
 BEGIN
     CREATE TABLE etl.alert_queue (
         alert_id      INT IDENTITY(1,1) NOT NULL,

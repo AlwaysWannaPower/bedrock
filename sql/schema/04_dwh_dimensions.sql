@@ -29,11 +29,8 @@ GO
 -- date_key = YYYYMMDD
 -- ============================================================================
 
-IF OBJECT_ID('dwh.dim_date', 'U') IS NOT NULL
-    DROP TABLE dwh.dim_date;
-GO
-
-CREATE TABLE dwh.dim_date
+IF OBJECT_ID('dwh.dim_date', 'U') IS NULL
+    CREATE TABLE dwh.dim_date
 (
     date_key       INT          NOT NULL,
     full_date      DATE         NOT NULL,
@@ -54,8 +51,6 @@ CREATE TABLE dwh.dim_date
         UNIQUE (full_date)
 );
 GO
-
-
 -- ============================================================================
 -- 2. DIM_MATERIAL
 -- ============================================================================
@@ -68,11 +63,8 @@ GO
 -- unit здесь хранится как атрибут материала.
 -- ============================================================================
 
-IF OBJECT_ID('dwh.dim_material', 'U') IS NOT NULL
-    DROP TABLE dwh.dim_material;
-GO
-
-CREATE TABLE dwh.dim_material
+IF OBJECT_ID('dwh.dim_material', 'U') IS NULL
+    CREATE TABLE dwh.dim_material
 (
     material_sk    INT IDENTITY(1,1) NOT NULL,
     material_id    INT               NOT NULL,
@@ -93,8 +85,6 @@ CREATE TABLE dwh.dim_material
         UNIQUE (material_id)
 );
 GO
-
-
 -- ============================================================================
 -- 3. DIM_WAREHOUSE
 -- ============================================================================
@@ -119,11 +109,8 @@ GO
 --   is_current = 1
 -- ============================================================================
 
-IF OBJECT_ID('dwh.dim_warehouse', 'U') IS NOT NULL
-    DROP TABLE dwh.dim_warehouse;
-GO
-
-CREATE TABLE dwh.dim_warehouse
+IF OBJECT_ID('dwh.dim_warehouse', 'U') IS NULL
+    CREATE TABLE dwh.dim_warehouse
 (
     warehouse_sk      INT IDENTITY(1,1) NOT NULL,
 
@@ -163,8 +150,6 @@ CREATE TABLE dwh.dim_warehouse
         )
 );
 GO
-
-
 -- ============================================================================
 -- 4. ИНДЕКСЫ DIM_WAREHOUSE
 -- ============================================================================

@@ -133,7 +133,7 @@ GO
 --
 -- ============================================================================
 
-IF OBJECT_ID(N'staging.prices', N'U') IS NOT NULL
+IF OBJECT_ID(N'staging.prices', N'U') IS NULL
     BEGIN
         CREATE TABLE staging.prices
         (
@@ -172,7 +172,7 @@ GO
 -- staging.warehouses
 
 -- ============================================================================
-IF OBJECT_ID(N'staging.warehouses', N'U') IS NOT NULL
+IF OBJECT_ID(N'staging.warehouses', N'U') IS NULL
     BEGIN
 
         CREATE TABLE staging.warehouses

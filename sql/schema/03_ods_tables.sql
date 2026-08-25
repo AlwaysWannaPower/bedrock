@@ -27,7 +27,7 @@ GO
 --   - balance_start >= 0, balance_end >= 0
 --   - Уникальность: (date, material_id, warehouse_code, start_date, end_date)
 -- ============================================================================
-IF OBJECT_ID('ods.turnover', 'U') IS NOT NULL
+IF OBJECT_ID('ods.turnover', 'U') IS NULL
 CREATE TABLE
     ods.turnover
 (
@@ -81,7 +81,7 @@ GO
 --   - start_date <= end_date
 --   - Уникальность: (date, material_id, start_date, end_date)
 -- ============================================================================
-IF OBJECT_ID('ods.prices', 'U') IS NOT NULL
+IF OBJECT_ID('ods.prices', 'U') IS NULL
 CREATE TABLE
     ods.prices
 (
@@ -123,7 +123,7 @@ GO
 --   - shop_code, directorate, mol_id, mol_position - могут быть NULL
 --   - Уникальность: (warehouse_code, start_date, end_date)
 -- ============================================================================
-IF OBJECT_ID('ods.warehouses', 'U') IS NOT NULL
+IF OBJECT_ID('ods.warehouses', 'U') IS NULL
 CREATE TABLE
     ods.warehouses
 (

@@ -17,11 +17,8 @@ GO
 USE BI_DWH;
 GO
 
-IF OBJECT_ID('dwh.fact_inventory', 'U') IS NOT NULL
-    DROP TABLE dwh.fact_inventory;
-GO
-
-CREATE TABLE dwh.fact_inventory
+IF OBJECT_ID('dwh.fact_inventory', 'U') IS NULL
+    CREATE TABLE dwh.fact_inventory
 (
     inventory_sk INT IDENTITY(1,1) NOT NULL,
 
@@ -67,8 +64,6 @@ CREATE TABLE dwh.fact_inventory
         REFERENCES dwh.dim_material(material_sk)
 );
 GO
-
-
 -- ============================================================================
 -- FACT PRICES
 --
@@ -79,11 +74,8 @@ GO
 -- новый период = новая строка факта.
 -- ============================================================================
 
-IF OBJECT_ID('dwh.fact_prices', 'U') IS NOT NULL
-    DROP TABLE dwh.fact_prices;
-GO
-
-CREATE TABLE dwh.fact_prices
+IF OBJECT_ID('dwh.fact_prices', 'U') IS NULL
+    CREATE TABLE dwh.fact_prices
 (
     price_sk INT IDENTITY(1,1) NOT NULL,
 
@@ -110,8 +102,6 @@ CREATE TABLE dwh.fact_prices
         )
 );
 GO
-
-
 -- ============================================================================
 -- FOREIGN KEYS
 -- ============================================================================
