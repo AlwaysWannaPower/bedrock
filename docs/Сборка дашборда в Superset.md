@@ -1,0 +1,269 @@
+# Сборка дашборда в Apache Superset (по ТЗ)
+
+Пошаговая инструкция: от запуска Superset до готового дашборда с KPI, MoM и фильтрами-ролями. Всё делается в веб-интерфейсе Superset (код проекта не меняем — Superset у нас тонкий клиент).
+
+> Сначала прочитай `README.md` (раздел «Быстрый старт») — DWH и витрины должны быть готовы.
+> Проверка: `docker compose exec mssql ... -Q "SELECT COUNT(*) FROM datamart.turnover_metrics"` → не 0.
+
+---
+
+## 0. Запуск Superset
+
+Если поднят только SQL Server, добавь Superset:
+
+```bash
+docker compose up -d --build superset
+```
+
+Первый запуск долгий (сборка образа + `superset init`): 5–15 минут. Следи:
+
+```bash
+docker compose logs -f superset | tail
+```
+
+Готово, когда в логе появится запуск сервера. Открой **http://localhost:8088**.
+
+Вход по умолчанию:
+
+```text
+Логин:  admin
+Пароль: admin
+```
+
+(Пароль смени потом: профиль → Security → Change Password.)
+
+---
+
+## 1. Подключить SQL Server как базу данных
+
+**Settings → Database Connections → + Database:**
+
+1. Database: **Microsoft SQL Server**.
+2. SQLAlchemy URI (пароль возьми из своего `.env`):
+
+```text
+mssql+pymssql://sa:ТвойПароль@mssql:1433/BI_DWH
+```
+
+3. **Test Connection** → должно быть `OK`.
+4. **Save**.
+
+Если тест падает: имя хоста должно быть `mssql` (внутри docker-сети), а не `localhost`.
+
+---
+
+## 2. Создать Datasets (источники данных)
+
+**Datasets → + Dataset** — три штуки:
+
+| Dataset | Schema | Table | Зачем |
+|---|---|---|---|
+| `vw_turnover_metrics` | `datamart` | `vw_turnover_metrics` | **главный** — KPI и MoM |
+| `vw_inventory_monthly` | `datamart` | `vw_inventory_monthly` | детализация по материалам |
+| `vw_warehouse_hierarchy` | `datamart` | `vw_warehouse_hierarchy` | справочник для фильтров |
+
+После создания открой каждый dataset → вкладка **Columns**:
+- убедись, что `stock_value`, `avg_stock_value`, `expense_value`, `turnover_ratio`, `turnover_days`, `mom_*` — **Numeric**;
+- `month_key`, `year_num`, `month_num` — тоже числовые;
+- при необходимости поменяй тип (pencil) и **Save**.
+
+### Поля витрины `vw_turnover_metrics` (шпаргалка)
+
+| Поле | Смысл |
+|---|---|
+| `month_key` | период `YYYYMM` (202401) |
+| `agg_level` | `company` / `directorate` / `shop` / `warehouse` — уровень среза (роль) |
+| `agg_key` | ключ среза: `ALL` / дирекция / «дирекция \| цех» / склад |
+| `directorate`, `shop_code`, `warehouse_code` | атрибуты для фильтров |
+| `stock_value` | **сумма запасов**, ₽ |
+| `avg_stock_value` | **средний остаток**, ₽ |
+| `expense_value` | расход в деньгах, ₽ |
+| `turnover_ratio` | **оборачиваемость в разах** |
+| `turnover_days` | **оборачиваемость в днях** |
+| `mom_stock_value`, `mom_avg_stock_value`, `mom_turnover_ratio`, `mom_turnover_days` | **MoM** (доли: `0.10` = +10%) |
+
+---
+
+## 3. Чарты — что выбрать (по ТЗ)
+
+ТЗ требует 4 метрики + MoM по каждой. Все они **уже посчитаны** в витрине — в Superset только показываем.
+
+### 3.1. KPI-карточки (Big Number)
+
+Для каждой метрики — свой чарт. Dataset: `vw_turnover_metrics`.
+
+**Chart type: Big Number.**
+
+| Чарт | Metric (SUM) | Ожидаемый вид |
+|---|---|---|
+| Сумма запасов | `SUM(stock_value)` | ~1–1,6 млрд ₽ |
+| Средний остаток | `SUM(avg_stock_value)` | ~1–1,6 млрд ₽ |
+| Оборачиваемость в разах | `AVG(turnover_ratio)` * | ~0,5–1,5 |
+| Оборачиваемость в днях | `AVG(turnover_days)` * | ~20–60 |
+
+\* Для KPI-карточки показываем **одну строку** (один месяц + один уровень среза), поэтому `AVG` по единственной строке = само значение. Проще: фильтровать месяц и срез, тогда `SUM` тоже даст одно значение.
+
+**Обязательный фильтр для KPI:** `agg_level = 'company'` (или выбранная роль) + конкретный `month_key`.
+
+### 3.2. MoM-карточки (Big Number с процентами)
+
+Для каждой метрики MoM — отдельный чарт (или вторая метрика Big Number).
+
+| Чарт | Metric | Формат |
+|---|---|---|
+| MoM суммы запасов | `AVG(mom_stock_value)` | Percent, 1 знак |
+| MoM среднего остатка | `AVG(mom_avg_stock_value)` | Percent |
+| MoM оборачиваемости (разы) | `AVG(mom_turnover_ratio)` | Percent |
+| MoM оборачиваемости (дни) | `AVG(mom_turnover_days)` | Percent |
+
+В настройке Big Number → **Big Number Formatting → Number format** = `%` (например `0.0%`). Значение `0.0171` покажется как `+1.7%` (убери минус: формат `+0.0%;-0.0%`).
+
+**Важно про MoM:** колонки `mom_*` уже посчитаны **для каждого уровня среза отдельно** — бери `AVG(mom_*)` только когда фильтр оставляет один срез (одна строка). Никогда не суммируй `mom_*` по разным складам (`SUM(mom_*)` — бессмысленно).
+
+### 3.3. Динамика по месяцам (Line Chart)
+
+**Chart type: Line Chart.** Dataset: `vw_turnover_metrics`.
+
+**Чарт «Сумма запасов по месяцам»:**
+- Time / X axis: `month_key` (или сделай Time Column — см. 3.5)
+- Metrics: `SUM(stock_value)`
+- Group by: `agg_level = 'company'` (фильтр) — линия компании
+- Вариант «по складам»: Group by `warehouse_code` при `agg_level = 'warehouse'`
+
+**Чарт «Оборачиваемость в днях по месяцам»:**
+- Metrics: `AVG(turnover_days)`
+- Фильтр: `agg_level = 'company'`
+
+### 3.4. Структура (для ролей)
+
+**Chart type: Bar Chart / Pie Chart.**
+
+- **Сумма запасов по дирекциям** (директор производства/закупок):
+  - X axis: `directorate`, Metric: `SUM(stock_value)`, фильтр `agg_level = 'directorate'` + месяц
+- **Сумма запасов по цехам** (начальник цеха): X: `shop_code`, фильтр `agg_level = 'shop'`
+- **По складам** (начальник склада / закупки): X: `warehouse_code`, фильтр `agg_level = 'warehouse'`
+
+### 3.5. Детализация по материалам (Table)
+
+**Chart type: Table.** Dataset: `vw_inventory_monthly`.
+
+- Columns: `month_key`, `warehouse_code`, `material_id`, `unit`, `balance_end`, `price`, `stock_value`, `turnover_days`
+- Фильтр месяца и склада. Это ответ на вопрос «из чего складывается сумма запасов».
+
+### 3.6. Ось времени из month_key
+
+`month_key` = число (`202401`). Чтобы графики шли по-человечески:
+
+1. В dataset `vw_turnover_metrics` добавь **Computed column**:
+   - Name: `month_dt`, Expression: `TO_DATE(CAST(year_num || '-' || month_num || '-01' AS VARCHAR))` — для PySpark-движка это не подходит, у нас SQL Server: лучше в самом чарте X-axis по `month_key` с сортировкой, а подписи сделать `month_name` (у нас есть `month_name` — русское название месяца).
+2. Проще: **X axis: `month_key`**, **Sort: ascending**, а **Metrics** уже числа. Подписи: включи **Show** / custom label через `month_name`.
+
+---
+
+## 4. Дашборд и фильтры-роли
+
+### 4.1. Собрать дашборд
+
+**+ Dashboard → New.** Название: например «BI_DWH: Запасы и оборачиваемость».
+
+Добавь все чарты кнопкой **Edit dashboard → +** → выбери свои чарты. Разложи:
+
+```text
+┌ KPI: Сумма запасов │ KPI: Средний остаток │ KPI: Оборачиваемость раз │ KPI: Оборачиваемость дней ┐
+├ MoM суммы │ MoM среднего │ MoM разы │ MoM дни ┤
+├─────────────────────── Линия: сумма запасов по месяцам ───────────────────────┤
+├────────── Бары: по дирекциям ──────────┼──────── Таблица: детализация ─────────┤
+└────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 4.2. Native Filters (главное — роли)
+
+**Edit dashboard → + Filters → Add Filter:**
+
+| Фильтр | Колонка | Для роли |
+|---|---|---|
+| Месяц | `month_key` | все (KPI за выбранный месяц) |
+| Уровень (роль) | `agg_level` | пресет роли: company / directorate / shop / warehouse |
+| Дирекция | `directorate` | директор |
+| Цех | `shop_code` | начальник цеха |
+| Склад | `warehouse_code` | начальник склада |
+
+Включи **Cascade Parent Filters** (иерархия): дирекция → цех → склад.
+(В настройках каждого фильтра — Parent filter = предыдущий.)
+
+**Как «стать ролью»:**
+
+| Роль | Значения фильтров |
+|---|---|
+| Гендиректор | `agg_level = company` (остальное не трогаем) |
+| Директор по производству/закупкам | `agg_level = directorate` + своя `directorate` |
+| Начальник цеха | `agg_level = shop` + дирекция + цех |
+| Начальник склада | `agg_level = warehouse` + свой склад |
+| Менеджер закупок | `agg_level = directorate` + дирекция закупок |
+
+Для демонстрации ролей на защите: выставь фильтры роли → скриншот → сброс.
+
+### 4.3. KPI должны следовать за фильтром
+
+Все KPI-чарты должны быть привязаны к глобальным фильтрам дашборда:
+**Edit chart → Filters → Global Filters (Dashboard)** — оставь по умолчанию (привязано автоматически). Убедись, что у чартов нет «собственных» жёстких фильтров, мешающих глобальным.
+
+---
+
+## 5. Производительность (ТЗ: фильтр ≤ 3 сек, открытие ≤ 5 сек)
+
+Уже сделано архитектурно:
+- витрины **предварительно агрегированы** (в BI нет тяжёлых GROUP BY по фактам);
+- кеш Superset **выключен** (`superset/superset_config.py`: `CACHE_TYPE = 'null'`);
+- на витринах есть индексы по `warehouse_code`, `material_id`, PK по `(month_key, agg_level, agg_key)`.
+
+Проверка времени:
+1. Открой дашборд → DevTools браузера (F12) → Network → посмотри время ответа при применении фильтра.
+2. Должно быть ≤ 3 сек. Если медленно — проверь, что чарты читают `vw_*`, а не `dwh.fact_*`.
+
+**Не делай** в чартах кастомный SQL с join'ами фактов — это сломает требование ТЗ.
+
+---
+
+## 6. Экспорт для сдачи (ТЗ: папка /dashboard)
+
+1. Скриншоты дашборда (роли!) → сохрани в `dashboard/screenshots/`.
+2. **Дашборд → ⋮ (меню) → Export dashboard** → ZIP.
+3. Положи ZIP в `dashboard/`.
+
+Структура после этого:
+
+```text
+dashboard/
+├── screenshots/
+│   ├── gen_dir.png
+│   ├── dir_proizvodstva.png
+│   └── nachalnik_sklada.png
+└── dashboard_export_2026-08-27.zip
+```
+
+---
+
+## 7. Чек-лист «дашборд готов по ТЗ»
+
+- [ ] Database подключена, Test OK
+- [ ] Datasets: `vw_turnover_metrics`, `vw_inventory_monthly`, `vw_warehouse_hierarchy`
+- [ ] KPI: сумма запасов, средний остаток, оборачиваемость разы/дни
+- [ ] MoM рядом с каждой метрикой (формат %)
+- [ ] Линейные тренды по месяцам
+- [ ] Фильтры: agg_level (роль), дирекция, цех, склад (+ иерархия)
+- [ ] Отклик фильтра ≤ 3 сек, открытие ≤ 5 сек
+- [ ] Экспорт ZIP + скриншоты в `dashboard/`
+
+---
+
+## 8. Типичные тупики
+
+| Симптом | Причина |
+|---|---|
+| Пустой KPI | не выбран `agg_level` / месяц, или фильтр слишком жёсткий |
+| «Нет schema datamart» | ETL не отработал — посмотри `docker compose logs mssql` |
+| MoM = странные проценты | взяли `SUM(mom_*)` по нескольким складам — бери `AVG` при одном срезе |
+| Медленно | чарт читает `fact_*` вместо витрины; или включился кеш (должен быть `null`) |
+| Нет фильтра «Цех» | `shop_code` пуст у части складов — фильтр показывает пустые значения |
+| Цифры «не сходятся» | смотри `quarantine.*` и период цены (в витрине цена = цена периода, не текущая) |
