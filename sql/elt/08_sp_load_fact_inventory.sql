@@ -1,6 +1,18 @@
 USE BI_DWH;
 GO
 
+-- ============================================================================
+-- ВАЖНО: явно включаем SET-параметры.
+--     Без QUOTED_IDENTIFIER ON INSERT в таблицы с фильтрованными
+--     индексами (например dwh.dim_warehouse) падает с ошибкой 1934,
+--     потому что sqlcmd по умолчанию выставляет QUOTED_IDENTIFIER OFF.
+-- ============================================================================
+SET ANSI_NULLS ON;
+GO
+
+SET QUOTED_IDENTIFIER ON;
+GO
+
 CREATE OR ALTER PROCEDURE dwh.sp_load_fact_inventory
 AS
 BEGIN
@@ -79,7 +91,11 @@ BEGIN
         SELECT ds.date_key AS date_key_start,
                de.date_key AS date_key_end,
 
-               w.warehouse_sk,
+               -- Версия склада на дату выгрузки; если её нет —
+               -- берём текущую версию (COALESCE). Для складов без снимка
+               -- в справочнике dwh.sp_load_dim_warehouse создаёт
+               -- плейсхолдер warehouse_type = 'UNKNOWN'.
+               ISNULL(w.warehouse_sk, w_current.warehouse_sk) AS warehouse_sk,
                m.material_sk,
 
                t.balance_start,
@@ -131,10 +147,31 @@ BEGIN
             ------------------------------------------------------------------------
             */
 
-                 INNER JOIN dwh.dim_warehouse AS w
+            /*
+            ------------------------------------------------------------------------
+            ВАЖНО про LEFT JOIN:
+                Раньше здесь был INNER JOIN, и строки обороток для складов,
+                которых нет в справочнике (или нет версии на дату), МОЛЧА
+                ТЕРЯЛИСЬ (~10% данных).
+
+                Теперь:
+                1) dwh.sp_load_dim_warehouse создаёт плейсхолдер 'UNKNOWN'
+                   для каждого кода склада из обороток, которого нет в справочнике;
+                2) здесь LEFT JOIN + COALESCE на «текущую версию» склада —
+                   строка факта создаётся ВСЕГДА, даже если точная версия
+                   на дату не найдена (берём текущую версию склада).
+            ------------------------------------------------------------------------
+            */
+
+                 LEFT JOIN dwh.dim_warehouse AS w
                             ON w.warehouse_code = t.warehouse_code
                                 AND CAST(t.date AS DATE) >= w.date_from
                                 AND CAST(t.date AS DATE) <= w.date_to
+
+            -- Запасной вариант: текущая (актуальная) версия склада.
+            LEFT JOIN dwh.dim_warehouse AS w_current
+                       ON w_current.warehouse_code = t.warehouse_code
+                      AND w_current.is_current = 1
 
         /*
         ------------------------------------------------------------------------

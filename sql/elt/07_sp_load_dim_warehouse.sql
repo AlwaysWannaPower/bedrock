@@ -7,6 +7,18 @@
 USE BI_DWH;
 GO
 
+-- ============================================================================
+-- ВАЖНО: явно включаем SET-параметры.
+--     Без QUOTED_IDENTIFIER ON INSERT в таблицы с фильтрованными
+--     индексами (например dwh.dim_warehouse) падает с ошибкой 1934,
+--     потому что sqlcmd по умолчанию выставляет QUOTED_IDENTIFIER OFF.
+-- ============================================================================
+SET ANSI_NULLS ON;
+GO
+
+SET QUOTED_IDENTIFIER ON;
+GO
+
 CREATE OR ALTER PROCEDURE dwh.sp_load_dim_warehouse
 AS
 BEGIN
@@ -352,6 +364,64 @@ BEGIN
 
         END;
 
+
+        -- ================================================================
+        -- 5. Плейсхолдеры для складов, которых НЕТ в справочнике
+        -- ================================================================
+        --
+        -- ПРОБЛЕМА, которую это решает:
+        --     в оборотках (ods.turnover) встречаются коды складов, которых
+        --     нет в файле «Склады» (например 115H, 240B...). Раньше факт
+        --     собирался через INNER JOIN и такие строки МОЛЧА ТЕРЯЛИСЬ
+        --     (~10% данных не попадало в факты и витрины!).
+        --
+        -- РЕШЕНИЕ (паттерн Kimball «unknown member»):
+        --     для каждого кода склада из обороток, которого нет в измерении,
+        --     создаём служебную строку-плейсхолдер:
+        --         - warehouse_type = 'UNKNOWN'  (видно, что атрибутов нет)
+        --         - период действия 1900-01-01 .. 9999-12-31 (действует всегда)
+        --         - is_current = 1
+        --
+        --     Тогда LEFT JOIN в загрузке фактов всегда находит версию склада,
+        --     и ни одна строка обороток не теряется.
+        -- ================================================================
+
+        INSERT INTO dwh.dim_warehouse
+        (
+            warehouse_code,
+            shop_code,
+            warehouse_type,
+            directorate,
+            mol_id,
+            mol_position,
+            date_from,
+            date_to,
+            is_current
+        )
+        SELECT
+            t.warehouse_code,
+            NULL,
+            N'UNKNOWN',
+            NULL,
+            NULL,
+            NULL,
+            CAST('1900-01-01' AS DATE),
+            CAST('9999-12-31' AS DATE),
+            1
+        FROM
+        (
+            -- Все коды складов, которые реально встречаются в оборотках.
+            SELECT DISTINCT warehouse_code
+            FROM ods.turnover
+            WHERE warehouse_code IS NOT NULL
+        ) AS t
+        WHERE NOT EXISTS
+        (
+            -- Которых ещё нет в измерении складов.
+            SELECT 1
+            FROM dwh.dim_warehouse AS w
+            WHERE w.warehouse_code = t.warehouse_code
+        );
 
         COMMIT TRANSACTION;
 

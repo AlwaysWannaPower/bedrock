@@ -32,6 +32,7 @@ BEGIN TRY
         @database_name = N'BI_DWH',
         @command = N'
 EXEC BI_DWH.elt.sp_load_staging_from_import;
+EXEC BI_DWH.elt.sp_master_etl;
 ',
         @on_success_action = 1, -- Quit with success
         @on_fail_action = 2;    -- Quit with failure

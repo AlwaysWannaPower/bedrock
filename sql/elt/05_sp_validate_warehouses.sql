@@ -1,6 +1,18 @@
 USE BI_DWH;
 GO
 
+-- ============================================================================
+-- ВАЖНО: явно включаем SET-параметры.
+--     Без QUOTED_IDENTIFIER ON INSERT в таблицы с фильтрованными
+--     индексами (например dwh.dim_warehouse) падает с ошибкой 1934,
+--     потому что sqlcmd по умолчанию выставляет QUOTED_IDENTIFIER OFF.
+-- ============================================================================
+SET ANSI_NULLS ON;
+GO
+
+SET QUOTED_IDENTIFIER ON;
+GO
+
 CREATE OR ALTER PROCEDURE elt.sp_validate_warehouses
 AS
 BEGIN
@@ -49,41 +61,12 @@ BEGIN
                -- Преобразованные значения
                -- ------------------------------------------------------------
 
-               TRY_CONVERT(
-                   DATE,
-                       DATEADD(
-                               DAY,
-                               TRY_CONVERT(
-                                   INT,
-                                       TRY_CONVERT(DECIMAL(18, 2), s.date)
-                               ),
-                               '1899-12-30'
-                       )
-               )                AS date,
-
-               TRY_CONVERT(
-                   DATE,
-                       DATEADD(
-                               DAY,
-                               TRY_CONVERT(
-                                   INT,
-                                       TRY_CONVERT(DECIMAL(18, 2), s.start_date)
-                               ),
-                               '1899-12-30'
-                       )
-               )                AS start_date,
-
-               TRY_CONVERT(
-                   DATE,
-                       DATEADD(
-                               DAY,
-                               TRY_CONVERT(
-                                   INT,
-                                       TRY_CONVERT(DECIMAL(18, 2), s.end_date)
-                               ),
-                               '1899-12-30'
-                       )
-               )                AS end_date,
+               -- Дата в ДВУХ форматах (см. elt.fn_parse_date):
+               --   1) Excel Serial Date:  '45292'  -> 2024-01-01  (склады приходят как '45292.0')
+               --   2) обычная дата:       '2024-01-31' -> 2024-01-31
+               elt.fn_parse_date(s.date)        AS date,
+               elt.fn_parse_date(s.start_date)  AS start_date,
+               elt.fn_parse_date(s.end_date)    AS end_date,
 
                NULLIF(
                        TRIM(s.warehouse_code),
@@ -249,21 +232,17 @@ BEGIN
 
 
         -- ====================================================================
-        -- 5. Проверяем дубликаты уже существующих данных в ODS
+        -- 5. (нет) — строки, уже существующие в ODS, НЕ отправляются в карантин
         -- ====================================================================
-
-        UPDATE d
-        SET error_reason = N'Дубликат строки в ODS'
-        FROM #data AS d
-        WHERE d.error_reason IS NULL
-
-          AND EXISTS
-            (SELECT 1
-             FROM ods.warehouses AS o
-             WHERE o.date = d.date
-               AND o.warehouse_code = d.warehouse_code
-               AND o.start_date = d.start_date
-               AND o.end_date = d.end_date);
+        --
+        -- Раньше здесь стояла проверка «если бизнес-ключ уже есть в ODS —
+        -- строка в карантин». Это ломало идемпотентность: при ПОВТОРНОМ
+        -- запуске ETL все старые строки staging снова помечались как
+        -- «Дубликат строки в ODS» и заново падали в карантин (затопление).
+        --
+        -- Правильно: строка уже обработана ранее → просто пропускаем её
+        -- (см. NOT EXISTS в шаге 7). Карантин — только для новых ошибок.
+        -- ====================================================================
 
 
         -- ====================================================================
@@ -272,6 +251,9 @@ BEGIN
         --
         -- Сюда попадают ТОЛЬКО строки,
         -- у которых error_reason действительно заполнен.
+        --
+        -- Защита от повторного карантина: load_id, который уже лежит
+        -- в quarantine.warehouses (с прошлого запуска), не вставляем снова.
         -- ====================================================================
 
         INSERT INTO quarantine.warehouses
@@ -302,8 +284,14 @@ BEGIN
                raw_mol_id,
                raw_mol_position
 
-        FROM #data
-        WHERE error_reason IS NOT NULL;
+        FROM #data AS d
+        WHERE error_reason IS NOT NULL
+
+          -- Уже в карантине с прошлого запуска — пропускаем (идемпотентность).
+          AND NOT EXISTS
+            (SELECT 1
+             FROM quarantine.warehouses AS q
+             WHERE q.load_id = d.load_id);
 
 
         -- ====================================================================
@@ -311,6 +299,9 @@ BEGIN
         -- ====================================================================
         --
         -- Только полностью валидные строки.
+        --
+        -- NOT EXISTS: если бизнес-ключ уже есть в ODS (строка загружена
+        -- в прошлый запуск) — пропускаем, дубликат не создаём.
         -- ====================================================================
 
         INSERT INTO ods.warehouses
@@ -337,8 +328,16 @@ BEGIN
                start_date,
                end_date
 
-        FROM #data
-        WHERE error_reason IS NULL;
+        FROM #data AS d
+        WHERE error_reason IS NULL
+
+          AND NOT EXISTS
+            (SELECT 1
+             FROM ods.warehouses AS o
+             WHERE o.date = d.date
+               AND o.warehouse_code = d.warehouse_code
+               AND o.start_date = d.start_date
+               AND o.end_date = d.end_date);
 
 
         -- ====================================================================

@@ -1,14 +1,23 @@
 USE BI_DWH;
 GO
 
+-- ============================================================================
+-- ВАЖНО: явно включаем SET-параметры.
+--     Без QUOTED_IDENTIFIER ON INSERT в таблицы с фильтрованными
+--     индексами (например dwh.dim_warehouse) падает с ошибкой 1934,
+--     потому что sqlcmd по умолчанию выставляет QUOTED_IDENTIFIER OFF.
+-- ============================================================================
+SET ANSI_NULLS ON;
+GO
+
+SET QUOTED_IDENTIFIER ON;
+GO
+
 CREATE OR ALTER PROCEDURE dwh.sp_load_fact_prices
 AS
 BEGIN
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
-
-    DECLARE @proc_name NVARCHAR(100) = N'dwh.sp_load_fact_prices';
-    DECLARE @start_dt DATETIME2 = SYSDATETIME();
 
     BEGIN TRY
 
@@ -154,26 +163,12 @@ BEGIN
         ========================================================================
         4. Успешное завершение
         ========================================================================
+
+        Логирование (RUNNING/SUCCESS/ERROR) выполняет elt.sp_master_etl
+        как шаг 7 — здесь повторно не пишем.
         */
 
         COMMIT TRANSACTION;
-
-
-        INSERT INTO elt.elt_log
-        (
-            proc_name,
-            start_dt,
-            end_dt,
-            status
-        )
-        VALUES
-        (
-            @proc_name,
-            @start_dt,
-            SYSDATETIME(),
-            N'SUCCESS'
-        );
-
 
     END TRY
 
@@ -181,23 +176,6 @@ BEGIN
 
         IF @@TRANCOUNT > 0
             ROLLBACK TRANSACTION;
-
-        INSERT INTO elt.elt_log
-        (
-            proc_name,
-            start_dt,
-            end_dt,
-            status,
-            error_msg
-        )
-        VALUES
-        (
-            @proc_name,
-            @start_dt,
-            SYSDATETIME(),
-            N'ERROR',
-            ERROR_MESSAGE()
-        );
 
         THROW;
 

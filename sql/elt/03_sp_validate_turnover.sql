@@ -1,6 +1,18 @@
 USE BI_DWH;
 GO
 
+-- ============================================================================
+-- ВАЖНО: явно включаем SET-параметры.
+--     Без QUOTED_IDENTIFIER ON INSERT в таблицы с фильтрованными
+--     индексами (например dwh.dim_warehouse) падает с ошибкой 1934,
+--     потому что sqlcmd по умолчанию выставляет QUOTED_IDENTIFIER OFF.
+-- ============================================================================
+SET ANSI_NULLS ON;
+GO
+
+SET QUOTED_IDENTIFIER ON;
+GO
+
 --         staging.turnover
 --             │
 --             ▼
@@ -67,15 +79,12 @@ BEGIN
                s.expense_qty    AS raw_expense_qty,
                s.balance_end    AS raw_balance_end,
 
-               -- Excel Serial Date -> DATE
-               TRY_CONVERT(DATE, DATEADD(DAY, TRY_CONVERT(INT, TRY_CONVERT(DECIMAL(18, 2), s.date)), '1899-12-30')
-               )                AS date,
-
-               TRY_CONVERT(DATE, DATEADD(DAY, TRY_CONVERT(INT, TRY_CONVERT(DECIMAL(18, 2), s.start_date)), '1899-12-30')
-               )                AS start_date,
-
-               TRY_CONVERT(DATE, DATEADD(DAY, TRY_CONVERT(INT, TRY_CONVERT(DECIMAL(18, 2), s.end_date)), '1899-12-30')
-               )                AS end_date,
+               -- Дата в ДВУХ форматах (см. elt.fn_parse_date):
+               --   1) Excel Serial Date:  '45292'  -> 2024-01-01
+               --   2) обычная дата:       '2024-01-31' -> 2024-01-31
+               elt.fn_parse_date(s.date)        AS date,
+               elt.fn_parse_date(s.start_date)  AS start_date,
+               elt.fn_parse_date(s.end_date)    AS end_date,
 
                NULLIF(TRIM(s.warehouse_code), '')
                                 AS warehouse_code,
@@ -223,6 +232,10 @@ BEGIN
         -- ================================================================
         -- 3. Невалидные строки -> QUARANTINE
         -- ================================================================
+        --
+        -- Защита от повторного карантина: load_id, который уже лежит
+        -- в quarantine.turnover (с прошлого запуска), не вставляем снова.
+        -- Это нужно для идемпотентности повторного запуска ETL.
 
         INSERT INTO quarantine.turnover
         (load_id,
@@ -255,8 +268,14 @@ BEGIN
                raw_unit,
                raw_material_id
 
-        FROM #data
-        WHERE error_reason IS NOT NULL;
+        FROM #data AS d
+        WHERE error_reason IS NOT NULL
+
+          -- Уже в карантине с прошлого запуска — пропускаем (идемпотентность).
+          AND NOT EXISTS
+            (SELECT 1
+             FROM quarantine.turnover AS q
+             WHERE q.load_id = d.load_id);
 
 
         -- ================================================================
