@@ -265,7 +265,13 @@ BEGIN
             SUM(f.balance_end) * MAX(p.price)  AS stock_value,
 
             -- Средний остаток в деньгах: avg_qty × цена.
-            (SUM(f.balance_start) + SUM(f.balance_end)) / 2
+            --
+            -- ВАЖНО про округление: берём ROUND(avg_qty, 2) — тот же
+            -- округлённый средний остаток, что сохраняется в колонку avg_qty.
+            -- Иначе avg_stock_value считался бы по НЕокруглённому среднему
+            -- и не совпадал бы с формулой avg_qty * price (расхождение
+            -- в 0,16% строк на мелкие копейки).
+            ROUND((SUM(f.balance_start) + SUM(f.balance_end)) / 2, 2)
                 * MAX(p.price)                 AS avg_stock_value,
 
             -- Расход в деньгах: |расход| × цена (расход в факте отрицательный).
