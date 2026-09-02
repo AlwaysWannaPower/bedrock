@@ -1,0 +1,1112 @@
+<!doctype html>
+<!--
+  BI_DWH — презентация проекта (для показа заказчику).
+
+  Тёмная «дата-инженерная» стилистика: реальные графики (SVG, данные из
+  «Отчёта о проверке пайплайна»), интерактив (схема слоёв, аккордеон ETL,
+  тултипы), сдержанные анимации (reveal, счётчики, отрисовка графиков).
+
+  Работает офлайн: системные шрифты, изображение локальное, ноль внешних
+  зависимостей, весь JS — ванильный в конце файла. Навигация — через
+  window.scrollTo (якорные переходы в превью ломали страницу).
+  Палитра — тёмный вариант направления tech-utility; акценты проверены
+  на контраст 4.5:1.
+-->
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BI_DWH — хранилище данных учёта запасов и оборачиваемости</title>
+  <style>
+    /* ─── tokens ─────────────────────────────────────────────────────── */
+    :root {
+      --bg:      oklch(15% 0.015 255);
+      --surface: oklch(20% 0.02 255);
+      --surface-2: oklch(24% 0.02 255);
+      --fg:      oklch(94% 0.008 250);
+      --muted:   oklch(70% 0.02 250);
+      --border:  oklch(30% 0.02 255);
+      --accent:  oklch(74% 0.10 195);   /* сдержанный teal */
+      --ok:      oklch(72% 0.13 160);   /* PASS / успех */
+      --warn:    oklch(76% 0.12 75);    /* карантин / предупреждение */
+
+      --accent-soft: color-mix(in oklch, var(--accent) 12%, transparent);
+      --ok-soft:     color-mix(in oklch, var(--ok) 12%, transparent);
+      --warn-soft:   color-mix(in oklch, var(--warn) 12%, transparent);
+      --fg-soft:     color-mix(in oklch, var(--fg) 6%, transparent);
+
+      /* type — единая sans-семья + mono для данных (utilitarian brief) */
+      --font-display: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      --font-body:    -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      --font-mono:    ui-monospace, 'JetBrains Mono', 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
+
+      --fs-h1: clamp(40px, 5.4vw, 68px);
+      --fs-h2: clamp(28px, 3.4vw, 42px);
+      --fs-h3: 18px;
+      --fs-lead: 17px;
+      --fs-body: 15px;
+      --fs-meta: 12px;
+
+      --gap-xs: 8px;
+      --gap-sm: 12px;
+      --gap-md: 20px;
+      --gap-lg: 32px;
+      --gap-xl: 56px;
+      --gap-2xl: 88px;
+      --container: 1180px;
+      --gutter: 32px;
+
+      --radius: 10px;
+      --radius-lg: 14px;
+    }
+
+    /* ─── reset & base ──────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font-body);
+      font-size: var(--fs-body);
+      line-height: 1.55;
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+    }
+    img, svg { display: block; max-width: 100%; }
+    a { color: inherit; text-decoration: none; }
+    button { font: inherit; cursor: pointer; }
+    p { text-wrap: pretty; }
+    h1, h2, h3, h4 { text-wrap: balance; }
+    ::selection { background: var(--accent-soft); }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+    section[id] { scroll-margin-top: 96px; }
+
+    /* ─── layout primitives ─────────────────────────────────────────── */
+    .container { max-width: var(--container); margin-inline: auto; padding-inline: var(--gutter); }
+    .section { padding-block: clamp(52px, 8vw, var(--gap-2xl)); }
+    .section + .section { border-top: 1px solid var(--border); }
+    .stack { display: flex; flex-direction: column; }
+    .stack > * + * { margin-top: var(--gap-md); }
+    .row { display: flex; align-items: center; gap: var(--gap-md); }
+    .row-between { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--gap-md); }
+    .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--gap-lg); }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--gap-lg); }
+    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--gap-md); }
+    .grid-2-1 { display: grid; grid-template-columns: 2fr 1fr; gap: var(--gap-xl); align-items: start; }
+    .grid-1-2 { display: grid; grid-template-columns: 1fr 2fr; gap: var(--gap-xl); align-items: start; }
+    @media (max-width: 920px) {
+      .grid-2, .grid-3, .grid-4, .grid-2-1, .grid-1-2 { grid-template-columns: 1fr; }
+    }
+
+    /* ─── type ──────────────────────────────────────────────────────── */
+    .h1, h1 { font-family: var(--font-display); font-size: var(--fs-h1); font-weight: 650; line-height: 1.05; letter-spacing: -0.025em; margin: 0; }
+    .h2, h2 { font-family: var(--font-display); font-size: var(--fs-h2); font-weight: 650; line-height: 1.12; letter-spacing: -0.02em; margin: 0; }
+    .h3, h3 { font-size: var(--fs-h3); font-weight: 600; line-height: 1.3; letter-spacing: -0.01em; margin: 0; }
+    .lead   { font-size: var(--fs-lead); line-height: 1.6; color: var(--muted); max-width: 62ch; margin: 0; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin: 0 0 var(--gap-md);
+    }
+    .meta { font-family: var(--font-mono); font-size: var(--fs-meta); color: var(--muted); }
+    .num  { font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+
+    /* ─── chrome: nav + footer ──────────────────────────────────────── */
+    .topnav {
+      position: sticky; top: 0; z-index: 40;
+      background: color-mix(in oklch, var(--bg) 88%, transparent);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--border);
+    }
+    .topnav-inner { display: flex; align-items: center; justify-content: space-between; gap: var(--gap-md); padding-block: 12px; }
+    .topnav .logo { font-family: var(--font-mono); font-size: 15px; font-weight: 700; letter-spacing: 0.02em; }
+    .topnav nav { display: flex; gap: var(--gap-lg); }
+    .topnav nav a { font-size: 13.5px; color: var(--muted); position: relative; padding-block: 4px; }
+    .topnav nav a:hover { color: var(--fg); }
+    .topnav nav a.active { color: var(--accent); }
+    .topnav .nav-right { display: flex; align-items: center; gap: var(--gap-md); }
+    @media (max-width: 920px) { .topnav nav { display: none; } }
+    .pagefoot { padding-block: var(--gap-xl); color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); }
+    .pagefoot .row-between { flex-wrap: wrap; gap: var(--gap-md); }
+    .pagefoot a { text-decoration: underline; text-underline-offset: 3px; color: var(--muted); }
+    .pagefoot a:hover { color: var(--fg); }
+
+    /* ─── buttons ───────────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 18px;
+      border-radius: var(--radius);
+      border: 1px solid transparent;
+      font-size: 14px;
+      font-weight: 550;
+      letter-spacing: -0.005em;
+      transition: transform 0.05s ease, background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    }
+    .btn:active { transform: translateY(1px); }
+    .btn-primary { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+    .btn-primary:hover { background: color-mix(in oklch, var(--accent) 88%, white); }
+    .btn-secondary { background: transparent; color: var(--fg); border-color: var(--border); }
+    .btn-secondary:hover { border-color: var(--fg); }
+    .btn-ghost { background: transparent; color: var(--fg); border-color: transparent; padding-inline: 8px; }
+    .btn-ghost:hover { color: var(--accent); }
+
+    /* ─── card / surface ────────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 26px;
+    }
+    .card-flat { background: transparent; border: 0; padding: 0; }
+
+    /* ─── pills / tags ──────────────────────────────────────────────── */
+    .pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      background: var(--accent-soft); color: var(--accent);
+    }
+    .pill-ok   { background: var(--ok-soft);   color: var(--ok); }
+    .pill-warn { background: var(--warn-soft); color: var(--warn); }
+    .tag {
+      display: inline-flex; align-items: center;
+      padding: 4px 10px;
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      font-size: 12px;
+    }
+
+    /* ─── hero ──────────────────────────────────────────────────────── */
+    .hero { padding-block: clamp(64px, 9vw, 120px); position: relative; overflow: hidden; }
+    .grid-bg {
+      background-image:
+        linear-gradient(color-mix(in oklch, var(--border) 45%, transparent) 1px, transparent 1px),
+        linear-gradient(90deg, color-mix(in oklch, var(--border) 45%, transparent) 1px, transparent 1px);
+      background-size: 44px 44px;
+      position: absolute; inset: 0; pointer-events: none;
+      -webkit-mask-image: linear-gradient(to bottom, transparent, black 30%, black 70%, transparent);
+      mask-image: linear-gradient(to bottom, transparent, black 30%, black 70%, transparent);
+    }
+    .hero-inner { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr); gap: var(--gap-2xl); align-items: center; }
+    @media (max-width: 920px) { .hero-inner { grid-template-columns: 1fr; } }
+    .hero h1 { margin-bottom: var(--gap-md); max-width: 24ch; }
+    .hero .lead { margin-bottom: var(--gap-lg); }
+    .hero-cta { display: inline-flex; gap: var(--gap-sm); flex-wrap: wrap; }
+
+    /* hero panel — «срез системы» */
+    .hero-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 22px;
+      box-shadow: 0 24px 60px -30px oklch(0% 0 0 / 0.7);
+    }
+    .hero-panel .hp-head { display: flex; align-items: center; justify-content: space-between; gap: var(--gap-sm); margin-bottom: 18px; }
+    .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .kpi { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; background: var(--bg); min-width: 0; }
+    @media (max-width: 560px) { .kpi-grid { grid-template-columns: 1fr; } }
+    .kpi .kpi-label { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+    .kpi .kpi-val { font-family: var(--font-mono); font-size: clamp(16px, 1.7vw, 20px); font-weight: 650; margin-top: 6px; letter-spacing: -0.02em; white-space: nowrap; }
+    .kpi .kpi-val small { font-size: 0.55em; color: var(--muted); font-weight: 500; }
+    .kpi .kpi-delta { font-family: var(--font-mono); font-size: 11.5px; margin-top: 4px; }
+    .kpi .kpi-delta.neg { color: var(--warn); }
+    .status-list { margin-top: 14px; border-top: 1px solid var(--border); }
+    .status-row { display: flex; align-items: center; justify-content: space-between; gap: var(--gap-sm); padding: 9px 2px; border-bottom: 1px solid var(--border); font-size: 13px; }
+    .status-row:last-child { border-bottom: 0; }
+    .status-row .k { color: var(--muted); }
+    .status-row .v { font-family: var(--font-mono); font-size: 12.5px; }
+    .spark { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 14px; }
+    .spark .spark-title { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+
+    /* ─── flow (pipeline) ───────────────────────────────────────────── */
+    .flow { display: flex; flex-direction: column; }
+    .flow-node { display: grid; grid-template-columns: 22px 1fr; gap: 14px; position: relative; }
+    .flow-node + .flow-node { margin-top: 16px; }
+    .flow-rail { position: relative; }
+    .flow-rail::before { content: ''; position: absolute; left: 4px; top: 14px; bottom: -18px; width: 1px; background: var(--border); }
+    .flow-node:last-child .flow-rail::before { display: none; }
+    .flow-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); margin-top: 7px; position: relative; z-index: 1; box-shadow: 0 0 0 3px var(--accent-soft); }
+    .flow-dot.warn { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-soft); }
+    .flow-dot.ok { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+    .flow-body {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 16px;
+      transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+    }
+    .flow-node:hover .flow-body { border-color: var(--accent); background: var(--surface-2); transform: translateX(3px); }
+    .flow-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--gap-sm); }
+    .flow-name { font-family: var(--font-mono); font-size: 13.5px; font-weight: 650; letter-spacing: 0.01em; }
+    .flow-count { font-family: var(--font-mono); font-size: 12.5px; color: var(--accent); }
+    .flow-desc { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+    .flow-split { display: grid; grid-template-columns: 22px 1fr; gap: 14px; margin-top: 16px; }
+    .flow-split > .flow-rail::before { content: ''; position: absolute; left: 4px; top: 14px; bottom: -34px; width: 1px; background: var(--border); }
+    .flow-split-body { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 920px) { .flow-split-body { grid-template-columns: 1fr; } }
+    .flow-split-item { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px; transition: border-color 0.15s ease; }
+    .flow-split-item.warn { border-color: color-mix(in oklch, var(--warn) 45%, var(--border)); }
+    .flow-split-item:hover { border-color: var(--accent); }
+    .img-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 10px; }
+
+    /* ─── decision cards ────────────────────────────────────────────── */
+    .decision-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 22px 24px;
+      position: relative;
+      transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+    }
+    .decision-card:hover { border-color: var(--accent); background: var(--surface-2); transform: translateY(-2px); }
+    .decision-card .d-num { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; color: var(--accent); }
+    .decision-card h3 { margin-top: 10px; }
+    .decision-card p { margin: 8px 0 0; color: var(--muted); font-size: 14px; }
+    .decision-card .d-cost { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--border); font-size: 12.5px; }
+    .decision-card .d-cost b { color: var(--fg); font-weight: 600; }
+
+    /* ─── limits ────────────────────────────────────────────────────── */
+    .limit-row {
+      display: grid; grid-template-columns: 150px 1fr;
+      gap: var(--gap-md); padding: 16px 0; border-top: 1px solid var(--border); align-items: baseline;
+    }
+    .limit-row:last-child { border-bottom: 1px solid var(--border); }
+    .limit-row .limit-tag { justify-self: start; }
+    .limit-row h3 { font-size: 16px; }
+    .limit-row p { margin: 5px 0 0; color: var(--muted); font-size: 14px; }
+    @media (max-width: 920px) { .limit-row { grid-template-columns: 1fr; gap: 6px; } }
+
+    /* ─── stats ─────────────────────────────────────────────────────── */
+    .stat .stat-num { font-family: var(--font-mono); font-size: clamp(34px, 4.6vw, 54px); font-weight: 700; letter-spacing: -0.03em; color: var(--fg); line-height: 1; }
+    .stat .stat-num .stat-unit { font-size: 0.5em; color: var(--muted); font-weight: 500; margin-left: 3px; }
+    .stat .stat-label { color: var(--muted); font-size: 13.5px; margin-top: 10px; max-width: 26ch; }
+
+    /* ─── charts ────────────────────────────────────────────────────── */
+    .chart { position: relative; }
+    .hbar { transform: scaleY(0); transform-origin: bottom; transition: transform 0.9s cubic-bezier(0.22, 0.61, 0.36, 1); }
+    .is-visible .hbar { transform: scaleY(1); }
+    .bar-val { font-family: var(--font-mono); font-size: 10.5px; fill: var(--muted); }
+    .bar-lab { font-family: var(--font-mono); font-size: 11px; fill: var(--muted); }
+    .gridline { stroke: var(--border); stroke-width: 1; }
+    .axis-lab { font-family: var(--font-mono); font-size: 10.5px; fill: var(--muted); letter-spacing: 0.04em; }
+    .donut-wrap { position: relative; width: 100%; max-width: 300px; margin-inline: auto; }
+    .donut-center { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; pointer-events: none; }
+    .donut-center .dc-num { font-family: var(--font-mono); font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
+    .donut-center .dc-lab { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-top: 2px; }
+    .donut-seg { fill: none; stroke-width: 26; stroke-dasharray: 0 440; transition: stroke-dasharray 1.2s cubic-bezier(0.22, 0.61, 0.36, 1); }
+    .is-visible .donut-seg { stroke-dasharray: var(--arc) 440; }
+    .legend { display: flex; flex-direction: column; }
+    .legend-item { display: grid; grid-template-columns: 10px 1fr auto auto; gap: 10px; align-items: baseline; padding: 8px 0; border-top: 1px solid var(--border); font-size: 13.5px; }
+    .legend-item:last-child { border-bottom: 1px solid var(--border); }
+    .legend-item .l-swatch { width: 8px; height: 8px; border-radius: 2px; align-self: center; }
+    .legend-item .l-name { color: var(--fg); }
+    .legend-item .l-num { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); text-align: right; }
+    .legend-item .l-pct { font-family: var(--font-mono); font-size: 11px; color: var(--accent); text-align: right; }
+
+    /* ─── table with spark bars ─────────────────────────────────────── */
+    .ds-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+    .ds-table th, .ds-table td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+    .ds-table th { color: var(--muted); font-weight: 500; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; }
+    .ds-table tbody tr:hover { background: var(--fg-soft); }
+    .ds-table .num-col { font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+    .ds-table .layer-h td { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent); padding-top: 14px; border-bottom: 0; }
+    .sbar-cell { min-width: 90px; }
+    .sbar { display: block; height: 7px; border-radius: 2px; background: color-mix(in oklch, var(--accent) 55%, transparent); width: 0; transition: width 1s cubic-bezier(0.22, 0.61, 0.36, 1) 0.15s; }
+    .is-visible .sbar { width: var(--w); }
+    .table-wrap { overflow-x: auto; }
+
+    /* ─── ETL steps (accordion) ─────────────────────────────────────── */
+    .etl-step { border-top: 1px solid var(--border); }
+    .etl-step:last-child { border-bottom: 1px solid var(--border); }
+    .etl-step summary {
+      list-style: none; cursor: pointer;
+      display: grid; grid-template-columns: 64px 1fr auto; gap: var(--gap-md); align-items: baseline;
+      padding: 16px 8px;
+    }
+    .etl-step summary::-webkit-details-marker { display: none; }
+    .etl-step summary .step-no { font-family: var(--font-mono); font-size: 13px; color: var(--accent); }
+    .etl-step summary .step-name { font-weight: 600; font-size: 15.5px; }
+    .etl-step summary .step-proc { font-family: var(--font-mono); font-size: 12px; color: var(--muted); text-align: right; }
+    .etl-step summary::after { content: '+'; font-family: var(--font-mono); color: var(--muted); font-size: 15px; }
+    .etl-step[open] summary::after { content: '−'; }
+    .etl-step summary:hover { background: var(--fg-soft); }
+    .etl-step .step-body { display: grid; grid-template-columns: 64px 1fr; gap: var(--gap-md); padding: 0 8px 18px; }
+    .etl-step .step-body p { margin: 0; color: var(--muted); font-size: 14px; max-width: 70ch; }
+    .etl-step .step-body .step-obj { margin-top: 8px; font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+    @media (max-width: 920px) {
+      .etl-step summary { grid-template-columns: 44px 1fr auto; }
+      .etl-step summary .step-proc { display: none; }
+    }
+
+    /* ─── terminal ──────────────────────────────────────────────────── */
+    .terminal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+    .t-head { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+    .t-head .dot { width: 10px; height: 10px; border-radius: 50%; background: color-mix(in oklch, var(--fg) 22%, transparent); }
+    .t-head .t-title { font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); margin-left: 6px; letter-spacing: 0.02em; }
+    .t-body { padding: 16px 20px 20px; font-family: var(--font-mono); font-size: 13px; line-height: 1.9; overflow-x: auto; }
+    .t-pr  { color: var(--accent); }
+    .t-dim { color: color-mix(in oklch, var(--fg) 60%, transparent); }
+    .t-ok  { color: var(--ok); font-weight: 600; }
+
+    /* ─── kv rows (roles) ───────────────────────────────────────────── */
+    .kv-row { display: grid; grid-template-columns: 150px 1fr; gap: var(--gap-md); padding: 12px 0; border-top: 1px solid var(--border); align-items: baseline; }
+    .kv-row:last-child { border-bottom: 1px solid var(--border); }
+    .kv-row .kv-k { font-family: var(--font-mono); font-size: 12.5px; color: var(--accent); font-weight: 600; }
+    .kv-row .kv-v { margin: 0; color: var(--muted); font-size: 14px; }
+    @media (max-width: 920px) { .kv-row { grid-template-columns: 1fr; gap: 2px; } }
+
+    /* ─── reveal / animation ────────────────────────────────────────── */
+    .reveal { opacity: 0; transform: translateY(18px); transition: opacity 0.7s ease, transform 0.7s ease; }
+    .reveal.is-visible { opacity: 1; transform: none; }
+
+    /* ─── tooltip ───────────────────────────────────────────────────── */
+    .tip {
+      position: fixed; z-index: 60; pointer-events: none;
+      background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 6px 10px;
+      font-family: var(--font-mono); font-size: 12px; color: var(--fg);
+      max-width: 300px; opacity: 0; transition: opacity 0.15s ease;
+    }
+    .tip.show { opacity: 1; }
+
+    /* ─── content image ─────────────────────────────────────────────── */
+    .content-img { display: block; max-width: 100%; max-height: min(72vh, 760px); width: auto; height: auto; object-fit: contain; justify-self: center; border-radius: var(--radius); }
+
+    /* ─── misc ──────────────────────────────────────────────────────── */
+    .rule { border: 0; border-top: 1px solid var(--border); margin: 0; }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+      .reveal { opacity: 1; transform: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topnav" data-od-id="topnav">
+    <div class="container topnav-inner">
+      <a class="logo" href="#hero">BI_DWH</a>
+      <nav data-od-id="nav">
+        <a href="#decisions">Решения</a>
+        <a href="#limits">Ограничения</a>
+        <a href="#data">Данные</a>
+        <a href="#etl">ETL</a>
+        <a href="#metrics">Метрики</a>
+      </nav>
+      <div class="nav-right">
+        <span class="pill pill-ok">15/15 PASS</span>
+        <a class="btn btn-ghost" href="#quickstart" data-od-id="nav-cta-quickstart">Запуск</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="content">
+
+    <!-- ═══ HERO ═══ -->
+    <section class="section hero" id="hero" data-od-id="hero">
+      <div class="grid-bg" aria-hidden="true"></div>
+      <div class="container hero-inner">
+        <div class="reveal is-visible">
+          <p class="eyebrow">BI_DWH · DWH + BI · MS SQL Server 2022 · Apache Superset 6.1</p>
+          <h1>Хранилище данных учёта запасов и оборачиваемости</h1>
+          <p class="lead">Классический DWH по методологии Кимбалла: сырой слой, валидация, карантин, модель «звезда» с SCD, предрасчитанные витрины и тонкий BI-клиент. Весь ETL — хранимыми процедурами на стороне СУБД; BI читает готовые витрины без кеша.</p>
+          <div class="hero-cta">
+            <a class="btn btn-primary" href="#quickstart" data-od-id="cta-quickstart-hero">Запуск одной командой</a>
+            <a class="btn btn-secondary" href="#decisions">Архитектурные решения</a>
+          </div>
+        </div>
+
+        <div class="hero-panel reveal" data-od-id="hero-panel" style="transition-delay: 120ms;">
+          <div class="hp-head">
+            <span class="meta">СРЕЗ: КОМПАНИЯ · 2025-12</span>
+            <span class="pill pill-ok">Live</span>
+          </div>
+          <div class="kpi-grid">
+            <div class="kpi">
+              <div class="kpi-label">Сумма запасов</div>
+              <div class="kpi-val num">1 207,6 <small>млн ₽</small></div>
+              <div class="kpi-delta neg num">MoM −5,0%</div>
+            </div>
+            <div class="kpi">
+              <div class="kpi-label">Оборачиваемость</div>
+              <div class="kpi-val num">25,5 <small>дн</small></div>
+              <div class="kpi-delta num" style="color: var(--muted);">1,18 раза</div>
+            </div>
+            <div class="kpi">
+              <div class="kpi-label">Файлов загружено</div>
+              <div class="kpi-val num">49/49</div>
+              <div class="kpi-delta" style="color: var(--ok); font-family: var(--font-mono);">ETL: SUCCESS</div>
+            </div>
+          </div>
+          <div class="status-list">
+            <div class="status-row"><span class="k">Дубликаты фактов</span><span class="v num">0</span></div>
+            <div class="status-row"><span class="k">Ошибки ETL</span><span class="v num" style="color: var(--ok);">0</span></div>
+            <div class="status-row"><span class="k">Ночной прогон</span><span class="v num">02:00 · SQL Agent</span></div>
+            <div class="status-row"><span class="k">Кеш BI</span><span class="v num" style="color: var(--warn);">запрещён ТЗ</span></div>
+          </div>
+          <div class="spark">
+            <div class="spark-title"><span>Сумма запасов · 4 мес</span><span>млн ₽</span></div>
+            <svg viewBox="0 0 220 72" role="img" aria-label="Сумма запасов по четырём контрольным месяцам: 1661,8 · 1649,6 · 1587,2 · 1207,6 млн рублей">
+              <g style="fill: color-mix(in oklch, var(--accent) 60%, transparent)">
+                <rect class="hbar" x="24" y="12" width="26" height="52" rx="2" style="transition-delay:.05s"/>
+                <rect class="hbar" x="72" y="12.4" width="26" height="51.6" rx="2" style="transition-delay:.15s"/>
+                <rect class="hbar" x="120" y="14.3" width="26" height="49.7" rx="2" style="transition-delay:.25s"/>
+                <rect class="hbar" x="168" y="26.2" width="26" height="37.8" rx="2" style="transition-delay:.35s"/>
+              </g>
+              <g class="bar-lab" style="font-size: 8.5px;">
+                <text x="37" y="70">01·24</text>
+                <text x="85" y="70">02·24</text>
+                <text x="133" y="70">03·24</text>
+                <text x="174" y="70">12·25</text>
+              </g>
+            </svg>
+          </div>
+          <p class="meta" style="margin-top: 10px;">данные: datamart.vw_turnover_metrics · контрольный прогон 02.09.2026</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ 02 · ПОТОК ДАННЫХ ═══ -->
+    <section class="section" id="pipeline" data-od-id="pipeline">
+      <div class="container">
+        <div class="row-between" style="margin-bottom: 40px;">
+          <div style="max-width: 46ch;">
+            <p class="eyebrow">02 · Поток данных</p>
+            <h2>Шесть слоёв, реальные счётчики</h2>
+          </div>
+          <span class="meta">наведите на узел</span>
+        </div>
+        <div class="grid-2-1">
+          <div class="flow reveal" data-od-id="flow">
+            <div class="flow-node" data-tip="24 оборотки + 24 цены + 1 справочник складов; конвертер Python + Polars не меняет структуру">
+              <div class="flow-rail"><span class="flow-dot"></span></div>
+              <div class="flow-body">
+                <div class="flow-head"><span class="flow-name">EXCEL → CSV</span><span class="flow-count num">49 файлов</span></div>
+                <p class="flow-desc">конвертер Polars · структура без изменений</p>
+              </div>
+            </div>
+            <div class="flow-node" data-tip="Сырой слой: значения как пришли, всё NVARCHAR, без бизнес-логики. Загрузка — BULK INSERT через file_registry">
+              <div class="flow-rail"><span class="flow-dot"></span></div>
+              <div class="flow-body">
+                <div class="flow-head"><span class="flow-name">staging</span><span class="flow-count num">5 875 055</span></div>
+                <p class="flow-desc">сырьё · 2 723 980 + 2 724 004 + 427 071</p>
+              </div>
+            </div>
+            <div class="flow-node" data-tip="Проверка типов, дат (Excel Serial и текст через fn_parse_date), бизнес-правил. Строка с ошибкой не останавливает загрузку">
+              <div class="flow-rail"><span class="flow-dot"></span></div>
+              <div class="flow-body">
+                <div class="flow-head"><span class="flow-name">validation</span><span class="flow-count num">100% строк</span></div>
+                <p class="flow-desc">типы · даты · бизнес-правила</p>
+              </div>
+            </div>
+            <div class="flow-split">
+              <div class="flow-rail"><span class="flow-dot warn"></span><span class="flow-dot ok" style="margin-top: 8px;"></span></div>
+              <div class="flow-split-body">
+                <div class="flow-split-item warn" data-tip="Каждая строка карантина хранит исходные значения и причину (error_reason). 99,1% — дубликаты цен и конфликтующие версии складов в исходных файлах заказчика">
+                  <div class="flow-head"><span class="flow-name" style="color: var(--warn);">quarantine</span><span class="flow-count num" style="color: var(--warn);">1 600 431</span></div>
+                  <p class="flow-desc">брак с причиной · не теряется</p>
+                </div>
+                <div class="flow-split-item" data-tip="Очищенные, типизированные, валидированные данные — основа для модели. UNIQUE-ключи защищают от дублей">
+                  <div class="flow-head"><span class="flow-name" style="color: var(--ok);">ods</span><span class="flow-count num" style="color: var(--ok);">4 276 351</span></div>
+                  <p class="flow-desc">чистые типизированные данные</p>
+                </div>
+              </div>
+            </div>
+            <div class="flow-node" data-tip="Модель Кимбалла: dim_date, dim_material (SCD1), dim_warehouse (SCD2, +22 UNKNOWN-плейсхолдера), факты остатков и цен. Суррогатные ключи">
+              <div class="flow-rail"><span class="flow-dot"></span></div>
+              <div class="flow-body">
+                <div class="flow-head"><span class="flow-name">dwh · kimball</span><span class="flow-count num">3 859 998 фактов</span></div>
+                <p class="flow-desc">звезда · измерения 106 498 · SCD2 для складов</p>
+              </div>
+            </div>
+            <div class="flow-node" data-tip="Предрасчитанные витрины: метрики + MoM по 4 уровням срезов. Тяжёлые агрегации в BI запрещены ТЗ">
+              <div class="flow-rail"><span class="flow-dot"></span></div>
+              <div class="flow-body">
+                <div class="flow-head"><span class="flow-name">datamart</span><span class="flow-count num">2 518 057</span></div>
+                <p class="flow-desc">KPI + MoM · уровни срезов = роли</p>
+              </div>
+            </div>
+            <div class="flow-node" data-tip="Superset 6.1: только отображение, Live-запросы без кеша, фильтры-роли, при необходимости — Row Level Security">
+              <div class="flow-rail"><span class="flow-dot ok"></span></div>
+              <div class="flow-body">
+                <div class="flow-head"><span class="flow-name">superset</span><span class="flow-count num" style="color: var(--ok);">Live</span></div>
+                <p class="flow-desc">тонкий клиент · без кеша · фильтры-роли</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="stack" style="gap: var(--gap-md);">
+            <figure class="img-card reveal" style="margin: 0; display: grid; justify-items: center;" data-od-id="arch-image">
+              <img class="content-img" src="assets/architecture.png" alt="Инфографика архитектуры BI_DWH: поток от Excel через staging, валидацию, карантин, ODS, DWH Кимбалла и витрины к Superset" width="916" height="1717" />
+              <figcaption class="meta" style="margin-top: 10px; text-align: center;">инфографика · docs/</figcaption>
+            </figure>
+            <div class="row" style="flex-wrap: wrap; gap: var(--gap-sm);">
+              <span class="tag">MS SQL Server 2022</span>
+              <span class="tag">Apache Superset 6.1</span>
+              <span class="tag">Python + Polars</span>
+              <span class="tag">Docker Compose</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ 03 · АРХИТЕКТУРНЫЕ РЕШЕНИЯ ═══ -->
+    <section class="section" id="decisions" data-od-id="decisions">
+      <div class="container">
+        <div class="row-between" style="margin-bottom: 40px;">
+          <div style="max-width: 46ch;">
+            <p class="eyebrow">03 · Архитектурные решения</p>
+            <h2>Что и почему выбрано — и чем заплачено</h2>
+          </div>
+          <span class="meta">08 РЕШЕНИЙ</span>
+        </div>
+        <div class="grid-2">
+          <article class="decision-card reveal" data-od-id="decision-elty">
+            <span class="d-num">01</span>
+            <h3>ELT внутри СУБД, а не ETL-скрипты снаружи</h3>
+            <p>Вся загрузка и трансформация — хранимые процедуры SQL Server: BULK INSERT, валидация, SCD, пересчёт витрин. Снаружи — только конвертер Excel → CSV на Polars.</p>
+            <p class="d-cost"><b>Цена решения:</b> логика привязана к T-SQL; перенос на другую СУБД — переписывание.</p>
+          </article>
+          <article class="decision-card reveal" data-od-id="decision-layers" style="transition-delay: 60ms;">
+            <span class="d-num">02</span>
+            <h3>Пять слоёв с разделением ответственности</h3>
+            <p>staging — «как пришло», карантин — «что браковано и почему», ods — «чистая правда», dwh — аналитическая модель, datamart — готовые KPI. Каждый слой чинится изолированно.</p>
+            <p class="d-cost"><b>Цена решения:</b> больше кода и скриптов, зато ясные границы между этапами.</p>
+          </article>
+          <article class="decision-card reveal" data-od-id="decision-kimball" style="transition-delay: 120ms;">
+            <span class="d-num">03</span>
+            <h3>Kimball-звезда вместо Inmon и Data Vault</h3>
+            <p>Один источник и конкретные отчёты (запасы/оборачиваемость) — звезда даёт результат быстрее 3NF-хранилища. Измерения согласованные: dim_date и dim_material общие для обоих фактов.</p>
+            <p class="d-cost"><b>Цена решения:</b> денормализация; для интеграции многих систем нужен был бы другой подход.</p>
+          </article>
+          <article class="decision-card reveal" data-od-id="decision-scd" style="transition-delay: 180ms;">
+            <span class="d-num">04</span>
+            <h3>SCD точечно: склад — SCD2, материал — SCD1</h3>
+            <p>Склад хранит историю изменений МОЛ и цеха с датами действия. Материалу история единиц измерения не нужна — только актуальная версия.</p>
+            <p class="d-cost"><b>Цена решения:</b> историю измерений материалов не ведём; пересмотр требований = пересборка измерения.</p>
+          </article>
+          <article class="decision-card reveal" data-od-id="decision-registry" style="transition-delay: 240ms;">
+            <span class="d-num">05</span>
+            <h3>file_registry с SHA-256 — инкремент без дублей</h3>
+            <p>Реестр хранит хеш каждого файла: новый — грузим, неизменённый — пропускаем, изменённый — перезагружаем. Повторный запуск ETL не меняет ни одного счётчика.</p>
+            <p class="d-cost"><b>Цена решения:</b> хеш считается для каждого файла при каждом прогоне загрузки.</p>
+          </article>
+          <article class="decision-card reveal" data-od-id="decision-quarantine" style="transition-delay: 300ms;">
+            <span class="d-num">06</span>
+            <h3>Карантин вместо молчаливой потери строк</h3>
+            <p>Строка с ошибкой не останавливает ETL: она уходит в карантин с исходными значениями и причиной. По ТЗ ошибочные данные не теряются и не маскируются.</p>
+            <p class="d-cost"><b>Цена решения:</b> карантин большой — 99,1% это свойства данных заказчика, а не дефект системы.</p>
+          </article>
+          <article class="decision-card reveal" data-od-id="decision-unknown" style="transition-delay: 360ms;">
+            <span class="d-num">07</span>
+            <h3>UNKNOWN-плейсхолдеры — паттерн Kimball</h3>
+            <p>22 склада из обороток отсутствуют в справочнике. INNER JOIN терял бы ~10% фактов; вместо этого измерение получает служебную строку, а факт собирается через LEFT JOIN.</p>
+            <p class="d-cost"><b>Цена решения:</b> в отчётах появляются «неизвестные» склады, о которых нужно помнить.</p>
+          </article>
+          <article class="decision-card reveal" data-od-id="decision-datamart" style="transition-delay: 420ms;">
+            <span class="d-num">08</span>
+            <h3>Витрины и MoM считаются в SQL, не в BI</h3>
+            <p>datamart предрасчитывает метрики и MoM (LAG по месяцам) для каждого уровня среза. Superset не выполняет тяжёлых агрегаций — это требование ТЗ.</p>
+            <p class="d-cost"><b>Цена решения:</b> витрины пересчитываются при каждой загрузке; ad-hoc-срезы — через SQL.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ 04 · ОГРАНИЧЕНИЯ ═══ -->
+    <section class="section" id="limits" data-od-id="limits">
+      <div class="container">
+        <div class="row-between" style="margin-bottom: 40px;">
+          <div style="max-width: 46ch;">
+            <p class="eyebrow">04 · Ограничения</p>
+            <h2>Границы системы — честно</h2>
+          </div>
+          <span class="meta">8 ПОЗИЦИЙ</span>
+        </div>
+        <div class="reveal">
+          <div class="limit-row">
+            <span class="pill pill-warn limit-tag">данные заказчика</span>
+            <div>
+              <h3>~46% строк цен — точные дубликаты в исходных файлах</h3>
+              <p>Каждая вторая строка цен повторена в файлах несколько раз; ~79% строк складов — конфликтующие версии (разные МОЛ на одну дату). Система фиксирует их в карантине с причиной, в ODS идут только уникальные строки.</p>
+            </div>
+          </div>
+          <div class="limit-row">
+            <span class="pill pill-warn limit-tag">данные заказчика</span>
+            <div>
+              <h3>22 кода складов отсутствуют в справочнике «Склады»</h3>
+              <p>Для них создаются плейсхолдеры UNKNOWN (период 1900-01-01…9999-12-31). Ни одна строка фактов не теряется, но в отчётах нужно помнить про «неизвестные» склады.</p>
+            </div>
+          </div>
+          <div class="limit-row">
+            <span class="pill limit-tag">масштаб</span>
+            <div>
+              <h3>Учебные объёмы: ~5,9 млн строк, ETL 8–10 минут</h3>
+              <p>Для продакшена понадобятся партиционирование фактов по дате, watermark-инкремент вместо пересчёта хешей и индексы под BI-фильтры. Слойная архитектура при этом не меняется.</p>
+            </div>
+          </div>
+          <div class="limit-row">
+            <span class="pill limit-tag">архитектура</span>
+            <div>
+              <h3>Кеш Superset запрещён ТЗ — каждый запрос идёт в БД</h3>
+              <p>Live-запросы к витринам. Скорость отклика зависит от производительности БД и индексов витрин; витрины предрасчитаны, поэтому фильтры работают быстро.</p>
+            </div>
+          </div>
+          <div class="limit-row">
+            <span class="pill limit-tag">архитектура</span>
+            <div>
+              <h3>MoM отсутствует для самого первого месяца</h3>
+              <p>Сравнивать не с чем — предыдущего периода нет. Это норма поведения, а не ошибка.</p>
+            </div>
+          </div>
+          <div class="limit-row">
+            <span class="pill limit-tag">безопасность</span>
+            <div>
+              <h3>Row Level Security ограничивает строки, но не обходит SQL Lab</h3>
+              <p>Прямой SQL может обойти RLS-правила, поэтому доступ к SQL Lab на базе BI_DWH для не-админов закрывается на уровне ролей Superset.</p>
+            </div>
+          </div>
+          <div class="limit-row">
+            <span class="pill limit-tag">архитектура</span>
+            <div>
+              <h3>Один источник данных и один BI-клиент</h3>
+              <p>Вход — Excel/CSV, витрины — для Superset. При интеграции многих систем потребовался бы Inmon или Data Vault; при нескольких BI-инструментах — отдельные слои экспорта.</p>
+            </div>
+          </div>
+          <div class="limit-row">
+            <span class="pill limit-tag">данные</span>
+            <div>
+              <h3>Цена берётся за период, а не «текущая»</h3>
+              <p>Январь 2024 считается ценой января, а не ценой 2026-го — история не переписывается. Обратная сторона: «сегодняшняя» оценка старых периодов требует отдельного запроса.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ 05 · ПРОВЕРКА ДАННЫМИ ═══ -->
+    <section class="section" id="data" data-od-id="data">
+      <div class="container">
+        <div class="row-between" style="margin-bottom: 40px;">
+          <div style="max-width: 46ch;">
+            <p class="eyebrow">05 · Проверка данными</p>
+            <h2>Реальный прогон вместо слайдов</h2>
+          </div>
+          <span class="meta">прогон 02.09.2026 · Docker</span>
+        </div>
+
+        <div class="grid-4 reveal">
+          <div class="stat" data-od-id="stat-files">
+            <div class="stat-num num"><span data-count="49">0</span></div>
+            <p class="stat-label">исходных файлов · 24 оборотки + 24 цены + 1 склад</p>
+          </div>
+          <div class="stat" data-od-id="stat-rows">
+            <div class="stat-num num"><span data-count="5.9" data-decimals="1">0</span><span class="stat-unit">млн</span></div>
+            <p class="stat-label">строк загружено в STAGING</p>
+          </div>
+          <div class="stat" data-od-id="stat-facts">
+            <div class="stat-num num"><span data-count="2510032">0</span></div>
+            <p class="stat-label">фактов остатков в dwh.fact_inventory</p>
+          </div>
+          <div class="stat" data-od-id="stat-dupes">
+            <div class="stat-num num"><span data-count="0">0</span></div>
+            <p class="stat-label">дубликатов фактов после повторных запусков ETL</p>
+          </div>
+        </div>
+
+        <div class="grid-2" style="margin-top: 56px; align-items: start;">
+          <div class="card reveal" data-od-id="chart-stock">
+            <p class="meta" style="margin: 0 0 14px;">СУММА ЗАПАСОВ ПО МЕСЯЦАМ · КОМПАНИЯ · МЛН ₽</p>
+            <svg class="chart" viewBox="0 0 520 268" role="img" aria-label="Сумма запасов по месяцам: январь 2024 — 1661,8 млн ₽, февраль — 1649,6, март — 1587,2, декабрь 2025 — 1207,6">
+              <g style="stroke: var(--border)">
+                <line class="gridline" x1="40" y1="230" x2="510" y2="230"/>
+                <line class="gridline" x1="40" y1="183.3" x2="510" y2="183.3"/>
+                <line class="gridline" x1="40" y1="136.7" x2="510" y2="136.7"/>
+                <line class="gridline" x1="40" y1="90" x2="510" y2="90"/>
+                <line class="gridline" x1="40" y1="43.3" x2="510" y2="43.3"/>
+                <line class="gridline" x1="40" y1="20" x2="510" y2="20"/>
+              </g>
+              <g class="axis-lab">
+                <text x="42" y="244">0</text><text x="42" y="188">400</text>
+                <text x="42" y="142">800</text><text x="42" y="95">1 200</text>
+                <text x="42" y="48">1 600</text><text x="42" y="25">1 800</text>
+              </g>
+              <g style="fill: color-mix(in oklch, var(--accent) 55%, transparent)">
+                <rect class="hbar" x="60" y="36.1" width="72" height="193.9" rx="3" data-tip="2024-01 · 1 661 838 535 ₽"/>
+                <text class="bar-val" x="96" y="29.1" text-anchor="middle">1 661,8</text>
+              </g>
+              <g style="fill: color-mix(in oklch, var(--accent) 55%, transparent)">
+                <rect class="hbar" x="190" y="37.6" width="72" height="192.4" rx="3" data-tip="2024-02 · 1 649 568 615 ₽"/>
+                <text class="bar-val" x="226" y="30.6" text-anchor="middle">1 649,6</text>
+              </g>
+              <g style="fill: color-mix(in oklch, var(--accent) 55%, transparent)">
+                <rect class="hbar" x="320" y="44.8" width="72" height="185.2" rx="3" data-tip="2024-03 · 1 587 163 816 ₽"/>
+                <text class="bar-val" x="356" y="37.8" text-anchor="middle">1 587,2</text>
+              </g>
+              <g style="fill: color-mix(in oklch, var(--accent) 38%, transparent)">
+                <rect class="hbar" x="450" y="89.1" width="72" height="140.9" rx="3" data-tip="2025-12 · 1 207 637 960 ₽"/>
+                <text class="bar-val" x="486" y="82.1" text-anchor="middle">1 207,6</text>
+              </g>
+              <g class="bar-lab">
+                <text x="96" y="248" text-anchor="middle">2024-01</text>
+                <text x="226" y="248" text-anchor="middle">2024-02</text>
+                <text x="356" y="248" text-anchor="middle">2024-03</text>
+                <text x="486" y="248" text-anchor="middle">2025-12</text>
+              </g>
+            </svg>
+            <p class="meta" style="margin-top: 10px;">контрольные месяцы из отчёта · витрина datamart.vw_turnover_metrics</p>
+          </div>
+
+          <div class="card reveal" data-od-id="chart-layers" style="transition-delay: 80ms;">
+            <p class="meta" style="margin: 0 0 8px;">ОБЪЁМЫ ПО СЛОЯМ · СТРОК</p>
+            <div class="table-wrap">
+              <table class="ds-table">
+                <thead>
+                  <tr><th>Объект</th><th class="num-col">Строк</th><th>Распределение</th></tr>
+                </thead>
+                <tbody>
+                  <tr class="layer-h"><td colspan="3">staging</td></tr>
+                  <tr><td class="num">turnover</td><td class="num-col">2 723 980</td><td class="sbar-cell"><span class="sbar" style="--w: 100%;"></span></td></tr>
+                  <tr><td class="num">prices</td><td class="num-col">2 724 004</td><td class="sbar-cell"><span class="sbar" style="--w: 100%;"></span></td></tr>
+                  <tr><td class="num">warehouses</td><td class="num-col">427 071</td><td class="sbar-cell"><span class="sbar" style="--w: 15.7%;"></span></td></tr>
+                  <tr class="layer-h"><td colspan="3">ods</td></tr>
+                  <tr><td class="num">turnover</td><td class="num-col">2 722 253</td><td class="sbar-cell"><span class="sbar" style="--w: 99.9%;"></span></td></tr>
+                  <tr><td class="num">prices</td><td class="num-col">1 463 204</td><td class="sbar-cell"><span class="sbar" style="--w: 53.7%;"></span></td></tr>
+                  <tr><td class="num">warehouses</td><td class="num-col">90 894</td><td class="sbar-cell"><span class="sbar" style="--w: 3.3%;"></span></td></tr>
+                  <tr class="layer-h"><td colspan="3">dwh</td></tr>
+                  <tr><td class="num">fact_inventory</td><td class="num-col">2 510 032</td><td class="sbar-cell"><span class="sbar" style="--w: 92.1%;"></span></td></tr>
+                  <tr><td class="num">fact_prices</td><td class="num-col">1 349 966</td><td class="sbar-cell"><span class="sbar" style="--w: 49.6%;"></span></td></tr>
+                  <tr class="layer-h"><td colspan="3">datamart</td></tr>
+                  <tr><td class="num">inventory_monthly</td><td class="num-col">2 510 032</td><td class="sbar-cell"><span class="sbar" style="--w: 92.1%;"></span></td></tr>
+                  <tr><td class="num">turnover_metrics</td><td class="num-col">8 025</td><td class="sbar-cell"><span class="sbar" style="--w: 0.3%;"></span></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="meta" style="margin-top: 10px;">шкала — доля от максимума 2 724 004 строк</p>
+          </div>
+        </div>
+
+        <div class="grid-2" style="margin-top: 56px; align-items: center;">
+          <div class="card reveal" data-od-id="chart-quarantine">
+            <p class="meta" style="margin: 0 0 16px;">СОСТАВ КАРАНТИНА · ПРИЧИНЫ</p>
+            <div class="donut-wrap">
+              <svg class="chart" viewBox="0 0 180 180" role="img" aria-label="Карантин: 1 600 431 строка, из них 1 255 862 дубликаты цен, 329 664 конфликтующие версии складов, 6 513 пустой тип, 4 935 цена не больше нуля, 3 454 несоответствие обороток, 3 некорректная цена">
+                <circle class="donut-seg" cx="90" cy="90" r="70" transform="rotate(-90 90 90)" style="stroke: var(--accent); --arc: 341.6;" />
+                <circle class="donut-seg" cx="90" cy="90" r="70" transform="rotate(-90.0 90 90)" style="stroke: color-mix(in oklch, var(--accent) 55%, var(--border)); --arc: 78.5;" />
+                <circle class="donut-seg" cx="90" cy="90" r="70" transform="rotate(-11.5 90 90)" style="stroke: color-mix(in oklch, var(--accent) 40%, var(--border)); --arc: 20.6;" />
+                <circle class="donut-seg" cx="90" cy="90" r="70" transform="rotate(9.1 90 90)" style="stroke: color-mix(in oklch, var(--accent) 30%, var(--border)); --arc: 0.4;" />
+                <circle class="donut-seg" cx="90" cy="90" r="70" transform="rotate(9.5 90 90)" style="stroke: color-mix(in oklch, var(--accent) 22%, var(--border)); --arc: 0.3;" />
+                <circle class="donut-seg" cx="90" cy="90" r="70" transform="rotate(9.8 90 90)" style="stroke: color-mix(in oklch, var(--accent) 15%, var(--border)); --arc: 0.2;" />
+              </svg>
+              <div class="donut-center">
+                <div class="dc-num num">1 600 431</div>
+                <div class="dc-lab">строк карантина</div>
+              </div>
+            </div>
+            <p class="meta" style="margin-top: 14px; text-align: center;">99,1% — дубликаты цен и конфликтующие версии складов в исходных файлах заказчика</p>
+          </div>
+          <div class="legend reveal" data-od-id="quarantine-legend" style="transition-delay: 80ms;">
+            <div class="legend-item"><span class="l-swatch" style="background: var(--accent);"></span><span class="l-name">цены · точные дубликаты строк</span><span class="l-pct">78,5%</span><span class="l-num">1 255 862</span></div>
+            <div class="legend-item"><span class="l-swatch" style="background: color-mix(in oklch, var(--accent) 55%, var(--border));"></span><span class="l-name">склады · конфликтующие версии</span><span class="l-pct">20,6%</span><span class="l-num">329 664</span></div>
+            <div class="legend-item"><span class="l-swatch" style="background: color-mix(in oklch, var(--accent) 40%, var(--border));"></span><span class="l-name">склады · пустой тип</span><span class="l-pct">0,4%</span><span class="l-num">6 513</span></div>
+            <div class="legend-item"><span class="l-swatch" style="background: color-mix(in oklch, var(--accent) 30%, var(--border));"></span><span class="l-name">цены · price ≤ 0</span><span class="l-pct">0,3%</span><span class="l-num">4 935</span></div>
+            <div class="legend-item"><span class="l-swatch" style="background: color-mix(in oklch, var(--accent) 22%, var(--border));"></span><span class="l-name">оборотки · несоответствие остатков и прочее</span><span class="l-pct">0,2%</span><span class="l-num">3 454</span></div>
+            <div class="legend-item"><span class="l-swatch" style="background: color-mix(in oklch, var(--accent) 15%, var(--border));"></span><span class="l-name">цены · некорректный price</span><span class="l-pct">0,0%</span><span class="l-num">3</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ 06 · ETL ═══ -->
+    <section class="section" id="etl" data-od-id="etl">
+      <div class="container">
+        <div class="row-between" style="margin-bottom: 32px;">
+          <div style="max-width: 46ch;">
+            <p class="eyebrow">06 · ETL-пайплайн</p>
+            <h2>Девять шагов, один оркестратор</h2>
+          </div>
+          <span class="meta num">elt.sp_master_etl</span>
+        </div>
+        <p class="lead" style="max-width: 62ch; margin-bottom: 24px;">Каждый шаг логируется в elt.elt_log — RUNNING → SUCCESS или ERROR с текстом. При падении: алерт в alert_queue (не зависит от почты) + письмо администратору через Database Mail.</p>
+        <div class="reveal">
+          <details class="etl-step" data-od-id="etl-0">
+            <summary><span class="step-no">00</span><span class="step-name">Загрузка в STAGING</span><span class="step-proc">elt.sp_load_staging_from_import</span></summary>
+            <div class="step-body"><div>
+              <p>BULK INSERT файлов из /import. file_registry с SHA-256: новый файл грузится, неизменённый пропускается, изменённый перезагружается. STAGING — сырьё как пришло, без бизнес-логики.</p>
+              <p class="step-obj">csv → staging.* · etl.file_registry · статусы pending / loaded / failed</p>
+            </div></div>
+          </details>
+          <details class="etl-step" data-od-id="etl-1">
+            <summary><span class="step-no">01</span><span class="step-name">Валидация обороток</span><span class="step-proc">elt.sp_validate_turnover</span></summary>
+            <div class="step-body"><div>
+              <p>Типы, даты (Excel Serial и текст через elt.fn_parse_date), бизнес-правила. Брак — в карантин с причиной, корректные строки — в ODS.</p>
+              <p class="step-obj">staging.turnover → quarantine.turnover / ods.turnover</p>
+            </div></div>
+          </details>
+          <details class="etl-step" data-od-id="etl-2">
+            <summary><span class="step-no">02</span><span class="step-name">Валидация цен</span><span class="step-proc">elt.sp_validate_prices</span></summary>
+            <div class="step-body"><div>
+              <p>Цена &gt; 0, корректные даты; дубликаты внутри файлов — в карантин по ТЗ, в ODS идут только уникальные строки.</p>
+              <p class="step-obj">staging.prices → quarantine.prices / ods.prices</p>
+            </div></div>
+          </details>
+          <details class="etl-step" data-od-id="etl-3">
+            <summary><span class="step-no">03</span><span class="step-name">Валидация складов</span><span class="step-proc">elt.sp_validate_warehouses</span></summary>
+            <div class="step-body"><div>
+              <p>Повторные и конфликтующие версии склада (разные МОЛ на одну дату) — в карантин; уникальные — в ODS.</p>
+              <p class="step-obj">staging.warehouses → quarantine.warehouses / ods.warehouses</p>
+            </div></div>
+          </details>
+          <details class="etl-step" data-od-id="etl-4">
+            <summary><span class="step-no">04</span><span class="step-name">Измерение материалов</span><span class="step-proc">dwh.sp_load_dim_material</span></summary>
+            <div class="step-body"><div>
+              <p>SCD1: только актуальная единица измерения. 105 364 материала.</p>
+              <p class="step-obj">ods → dwh.dim_material · material_sk</p>
+            </div></div>
+          </details>
+          <details class="etl-step" data-od-id="etl-5">
+            <summary><span class="step-no">05</span><span class="step-name">Измерение складов</span><span class="step-proc">dwh.sp_load_dim_warehouse</span></summary>
+            <div class="step-body"><div>
+              <p>SCD2: история МОЛ и цеха с датами действия; новая версия закрывает старую. Для 22 складов без снимка в справочнике — UNKNOWN-плейсхолдеры.</p>
+              <p class="step-obj">ods → dwh.dim_warehouse · warehouse_sk · date_from / date_to · is_current</p>
+            </div></div>
+          </details>
+          <details class="etl-step" data-od-id="etl-6">
+            <summary><span class="step-no">06</span><span class="step-name">Факт остатков</span><span class="step-proc">dwh.sp_load_fact_inventory</span></summary>
+            <div class="step-body"><div>
+              <p>Зерно: период × склад × материал. Берётся последняя версия по дате выгрузки; LEFT JOIN + COALESCE на текущую версию склада — строка факта создаётся всегда.</p>
+              <p class="step-obj">ods → dwh.fact_inventory · 2 510 032 строк</p>
+            </div></div>
+          </details>
+          <details class="etl-step" data-od-id="etl-7">
+            <summary><span class="step-no">07</span><span class="step-name">Факт цен</span><span class="step-proc">dwh.sp_load_fact_prices</span></summary>
+            <div class="step-body"><div>
+              <p>Зерно: период × материал. Последняя версия, UNIQUE-ключ по бизнес-зерну — дубликатов нет.</p>
+              <p class="step-obj">ods → dwh.fact_prices · 1 349 966 строк</p>
+            </div></div>
+          </details>
+          <details class="etl-step" data-od-id="etl-8">
+            <summary><span class="step-no">08</span><span class="step-name">Пересчёт витрин</span><span class="step-proc">datamart.sp_refresh_datamart</span></summary>
+            <div class="step-body"><div>
+              <p>Метрики и MoM по 4 уровням срезов через LAG по месяцам. Витрины читает Superset без пересчёта в BI.</p>
+              <p class="step-obj">dwh → datamart.turnover_metrics · datamart.inventory_monthly</p>
+            </div></div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ 07 · МЕТРИКИ И РОЛИ ═══ -->
+    <section class="section" id="metrics" data-od-id="metrics">
+      <div class="container">
+        <div class="row-between" style="margin-bottom: 40px;">
+          <div style="max-width: 46ch;">
+            <p class="eyebrow">07 · Метрики и роли</p>
+            <h2>Метрики считает хранилище, а не BI</h2>
+          </div>
+          <span class="meta">4 МЕТРИКИ + MoM</span>
+        </div>
+        <div class="grid-2" style="align-items: start;">
+          <div class="card reveal">
+            <p class="meta" style="margin: 0 0 8px;">ФОРМУЛЫ · ВИТРИНА DATAMART</p>
+            <div class="table-wrap">
+              <table class="ds-table">
+                <thead>
+                  <tr><th>Метрика</th><th>Формула</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>Сумма запасов</td><td class="num">Σ остаток_конец × цена_периода</td></tr>
+                  <tr><td>Средний остаток, ₽</td><td class="num">Σ (остаток_начало + остаток_конец)/2 × цена</td></tr>
+                  <tr><td>Оборачиваемость, раз</td><td class="num">расход_в_деньгах ÷ средний_остаток</td></tr>
+                  <tr><td>Оборачиваемость, дней</td><td class="num">30 × средний_остаток ÷ расход_в_деньгах</td></tr>
+                  <tr><td>MoM</td><td class="num">(X_тек − X_пред) ÷ X_пред · через LAG</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="meta" style="margin-top: 10px;">Формулы сверены с данными: 0 несовпадений в контрольном прогоне</p>
+          </div>
+          <div class="card reveal" style="transition-delay: 80ms;">
+            <p class="meta" style="margin: 0 0 8px;">УРОВНИ СРЕЗОВ = РОЛИ</p>
+            <div>
+              <div class="kv-row"><span class="kv-k">company</span><p class="kv-v"><strong style="color: var(--fg);">Генеральный директор</strong> — вся компания</p></div>
+              <div class="kv-row"><span class="kv-k">directorate</span><p class="kv-v"><strong style="color: var(--fg);">Директора производств и закупок</strong> — своя дирекция</p></div>
+              <div class="kv-row"><span class="kv-k">shop</span><p class="kv-v"><strong style="color: var(--fg);">Начальник цеха</strong> — свой цех</p></div>
+              <div class="kv-row"><span class="kv-k">warehouse</span><p class="kv-v"><strong style="color: var(--fg);">Начальник склада и менеджер закупок</strong> — свой склад</p></div>
+            </div>
+            <p style="color: var(--muted); font-size: 13.5px; margin-top: 16px;">MoM считается отдельно для каждого уровня — дашборд любой роли показывает корректные значения без пересчёта в BI. При необходимости доступ ограничивается Row Level Security.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ 08 · ЗАПУСК ═══ -->
+    <section class="section" id="quickstart" data-od-id="quickstart">
+      <div class="container">
+        <div class="row-between" style="margin-bottom: 40px;">
+          <div style="max-width: 46ch;">
+            <p class="eyebrow">08 · Запуск</p>
+            <h2>Развёртывание одной командой</h2>
+          </div>
+          <span class="meta">Docker · версии зафиксированы</span>
+        </div>
+        <div class="grid-2" style="align-items: start;">
+          <div class="terminal reveal" data-od-id="terminal">
+            <div class="t-head">
+              <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+              <span class="t-title">deploy — docker compose up</span>
+            </div>
+            <div class="t-body">
+              <div><span class="t-pr">$</span> cp .env.example .env</div>
+              <div><span class="t-pr">$</span> docker compose up -d --build</div>
+              <div class="t-dim">… первичный ETL: 49 файлов → витрины · 8–10 мин · далее новые файлы — инкрементально …</div>
+              <div><span class="t-ok">✓ STARTUP INITIALIZATION SUCCESSFUL</span></div>
+              <div class="t-dim">→ http://localhost:8088 · admin / admin</div>
+            </div>
+          </div>
+          <div class="stack reveal" style="gap: var(--gap-md); transition-delay: 80ms;">
+            <div class="card-flat">
+              <p class="meta" style="margin: 0 0 6px;">ПРИ СТАРТЕ</p>
+              <p style="margin: 0; color: var(--muted); font-size: 14px;">startup.sh: schema → agent → elt → datamart → views → mail, затем первичный ETL. Скрипты идемпотентны — повторный запуск безопасен; sqlcmd с флагом -b останавливает инициализацию при SQL-ошибке.</p>
+            </div>
+            <div class="card-flat">
+              <p class="meta" style="margin: 0 0 6px;">НОЧЬЮ</p>
+              <p style="margin: 0; color: var(--muted); font-size: 14px;">SQL Agent в 02:00: загрузка новых файлов + полный master ETL. Включение — переменной MSSQL_AGENT_ENABLED в .env.</p>
+            </div>
+            <div class="card-flat">
+              <p class="meta" style="margin: 0 0 6px;">ПРИ ОШИБКЕ</p>
+              <p style="margin: 0; color: var(--muted); font-size: 14px;">alert_queue (не зависит от почты) + письмо администратору через Database Mail; исходная ошибка не скрывается (THROW).</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="pagefoot" data-od-id="footer">
+    <div class="container row-between">
+      <span>© BI_DWH · 2026 · демо-презентация; все цифры — из «Отчёта о проверке пайплайна»</span>
+      <span class="row" style="gap: var(--gap-lg); flex-wrap: wrap;">
+        <a href="../README.md">README проекта</a>
+        <a href="../docs/Руководство%20пользователя.md">Руководство пользователя</a>
+        <a href="../docs/Отчёт%20о%20проверке%20пайплайна.md">Отчёт о проверке</a>
+      </span>
+    </div>
+  </footer>
+
+  <div class="tip" id="tip" role="tooltip"></div>
+
+  <script>
+  (function () {
+    'use strict';
+    var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    /* 1. Навигация без якорей: scrollTo вместо hash-перехода (превью не падает) */
+    var links = document.querySelectorAll('a[href^="#"]');
+    Array.prototype.forEach.call(links, function (a) {
+      a.addEventListener('click', function (e) {
+        var id = a.getAttribute('href');
+        if (id.length < 2) return;
+        var el = document.querySelector(id);
+        if (!el) return;
+        e.preventDefault();
+        var y = el.getBoundingClientRect().top + window.scrollY - 84;
+        window.scrollTo({ top: y, behavior: reduceMotion ? 'auto' : 'smooth' });
+      });
+    });
+
+    /* 2. Reveal-анимации */
+    var reveals = document.querySelectorAll('.reveal');
+    if (reduceMotion) {
+      Array.prototype.forEach.call(reveals, function (el) { el.classList.add('is-visible'); });
+    } else if ('IntersectionObserver' in window) {
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (en) {
+          if (en.isIntersecting) { en.target.classList.add('is-visible'); io.unobserve(en.target); }
+        });
+      }, { threshold: 0.12 });
+      Array.prototype.forEach.call(reveals, function (el) { io.observe(el); });
+    } else {
+      Array.prototype.forEach.call(reveals, function (el) { el.classList.add('is-visible'); });
+    }
+
+    /* 3. Активный пункт навигации */
+    var navLinks = document.querySelectorAll('.topnav nav a');
+    if ('IntersectionObserver' in window && navLinks.length) {
+      var sections = [];
+      Array.prototype.forEach.call(navLinks, function (a) {
+        var s = document.querySelector(a.getAttribute('href'));
+        if (s) sections.push({ link: a, sec: s });
+      });
+      var navIo = new IntersectionObserver(function (entries) {
+        entries.forEach(function (en) {
+          if (en.isIntersecting) {
+            Array.prototype.forEach.call(navLinks, function (a) { a.classList.remove('active'); });
+            sections.forEach(function (pair) {
+              if (pair.sec === en.target) pair.link.classList.add('active');
+            });
+          }
+        });
+      }, { rootMargin: '-40% 0px -55% 0px' });
+      sections.forEach(function (pair) { navIo.observe(pair.sec); });
+    }
+
+    /* 4. Счётчики */
+    function animateCount(el) {
+      var target = parseFloat(el.getAttribute('data-count'));
+      var dec = parseInt(el.getAttribute('data-decimals') || '0', 10);
+      var dur = 1100;
+      var start = null;
+      function fmt(v) {
+        return dec ? v.toFixed(dec) : Math.round(v).toLocaleString('ru-RU');
+      }
+      function tick(now) {
+        if (!start) start = now;
+        var p = Math.min((now - start) / dur, 1);
+        var eased = 1 - Math.pow(1 - p, 3);
+        el.textContent = fmt(target * eased);
+        if (p < 1) requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    }
+    var counters = document.querySelectorAll('[data-count]');
+    if (reduceMotion) {
+      Array.prototype.forEach.call(counters, function (el) {
+        el.textContent = el.getAttribute('data-decimals')
+          ? parseFloat(el.getAttribute('data-count')).toFixed(parseInt(el.getAttribute('data-decimals'), 10))
+          : parseInt(el.getAttribute('data-count'), 10).toLocaleString('ru-RU');
+      });
+    } else if ('IntersectionObserver' in window) {
+      var cio = new IntersectionObserver(function (entries) {
+        entries.forEach(function (en) {
+          if (en.isIntersecting) { animateCount(en.target); cio.unobserve(en.target); }
+        });
+      }, { threshold: 0.6 });
+      Array.prototype.forEach.call(counters, function (el) { cio.observe(el); });
+    } else {
+      Array.prototype.forEach.call(counters, function (el) { animateCount(el); });
+    }
+
+    /* 5. Тултипы */
+    var tip = document.getElementById('tip');
+    if (tip) {
+      var tipEls = document.querySelectorAll('[data-tip]');
+      Array.prototype.forEach.call(tipEls, function (el) {
+        el.addEventListener('mouseenter', function () { tip.textContent = el.getAttribute('data-tip'); tip.classList.add('show'); });
+        el.addEventListener('mousemove', function (e) { tip.style.left = (e.clientX + 14) + 'px'; tip.style.top = (e.clientY + 14) + 'px'; });
+        el.addEventListener('mouseleave', function () { tip.classList.remove('show'); });
+      });
+    }
+  })();
+  </script>
+</body>
+</html>
