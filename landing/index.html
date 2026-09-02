@@ -388,45 +388,67 @@
         <details class="etl-step" open>
           <summary><span class="step-no">00</span><span class="step-name">Загрузка в STAGING</span><span class="step-proc">elt.sp_load_staging_from_import</span></summary>
           <div class="step-body">
-            <p>BULK INSERT файлов из /import. Реестр <span class="num">elt.file_registry</span> хранит SHA-256:
-            новый файл грузится, неизменённый пропускается, изменённый перезагружается. STAGING — сырьё как пришло, без бизнес-логики.</p>
+            <p>BULK INSERT файлов из /import. Реестр <span class="num">elt.file_registry</span> хранит SHA-256: новый файл грузится, неизменённый пропускается, изменённый перезагружается. STAGING — сырьё как пришло, без бизнес-логики.</p>
             <p class="step-obj">csv → staging.* · file_registry · статусы pending / loaded / failed</p>
           </div>
         </details>
         <details class="etl-step">
-          <summary><span class="step-no">01–03</span><span class="step-name">Валидация и карантин</span><span class="step-proc">elt.sp_validate_*</span></summary>
+          <summary><span class="step-no">01</span><span class="step-name">Валидация обороток</span><span class="step-proc">elt.sp_validate_turnover</span></summary>
           <div class="step-body">
-            <p>Типы, даты (Excel Serial и текст через <span class="num">elt.fn_parse_date</span>), бизнес-правила
-            (цена &gt; 0, остаток = начало + приход + расход, расход отрицательный). Дубликаты и конфликтующие строки
-            внутри файлов — в карантин с причиной; корректные строки — в ODS. Повторный запуск ничего не дублирует.</p>
-            <p class="step-obj">staging.turnover / prices / warehouses → quarantine.* / ods.*</p>
+            <p>Типы, даты (Excel Serial и текст через <span class="num">elt.fn_parse_date</span>), бизнес-правила: остаток = начало + приход + расход, расход отрицательный. Брак — в карантин с причиной, корректные строки — в ODS.</p>
+            <p class="step-obj">staging.turnover → quarantine.turnover / ods.turnover</p>
           </div>
         </details>
         <details class="etl-step">
-          <summary><span class="step-no">04–05</span><span class="step-name">Измерения</span><span class="step-proc">dwh.sp_load_dim_material / dim_warehouse</span></summary>
+          <summary><span class="step-no">02</span><span class="step-name">Валидация цен</span><span class="step-proc">elt.sp_validate_prices</span></summary>
           <div class="step-body">
-            <p>Материал — SCD1 (актуальная единица измерения). Склад — SCD2: история МОЛ и цеха с датами действия;
-            новая версия закрывает старую. Для складов из фактов без снимка в справочнике создаются UNKNOWN-плейсхолдеры.</p>
-            <p class="step-obj">ods → dwh.dim_material · dwh.dim_warehouse (date_from / date_to / is_current)</p>
+            <p>Цена &gt; 0, корректные даты; дубликаты внутри файлов — в карантин по ТЗ, в ODS идут только уникальные строки. Повторный запуск ничего не дублирует.</p>
+            <p class="step-obj">staging.prices → quarantine.prices / ods.prices</p>
           </div>
         </details>
         <details class="etl-step">
-          <summary><span class="step-no">06–07</span><span class="step-name">Факты</span><span class="step-proc">dwh.sp_load_fact_inventory / fact_prices</span></summary>
+          <summary><span class="step-no">03</span><span class="step-name">Валидация складов</span><span class="step-proc">elt.sp_validate_warehouses</span></summary>
           <div class="step-body">
-            <p>По бизнес-зерну берётся последняя версия выгрузки (ROW_NUMBER по дате выгрузки).
-            Склад цепляется к версии, актуальной на дату факта; LEFT JOIN + COALESCE на текущую версию —
-            строка факта создаётся всегда. UNIQUE по бизнес-зерну исключает дубликаты.</p>
-            <p class="step-obj">ods → dwh.fact_inventory · dwh.fact_prices</p>
+            <p>Повторные и конфликтующие версии склада (разные МОЛ на одну дату) — в карантин; уникальные — в ODS.</p>
+            <p class="step-obj">staging.warehouses → quarantine.warehouses / ods.warehouses</p>
+          </div>
+        </details>
+        <details class="etl-step">
+          <summary><span class="step-no">04</span><span class="step-name">Измерение материалов</span><span class="step-proc">dwh.sp_load_dim_material</span></summary>
+          <div class="step-body">
+            <p>SCD1: только актуальная единица измерения; история ЕИ не нужна для метрик.</p>
+            <p class="step-obj">ods → dwh.dim_material · material_sk</p>
+          </div>
+        </details>
+        <details class="etl-step">
+          <summary><span class="step-no">05</span><span class="step-name">Измерение складов</span><span class="step-proc">dwh.sp_load_dim_warehouse</span></summary>
+          <div class="step-body">
+            <p>SCD2: история МОЛ и цеха с датами действия; новая версия закрывает старую. Для складов из фактов без снимка в справочнике создаются UNKNOWN-плейсхолдеры.</p>
+            <p class="step-obj">ods → dwh.dim_warehouse · warehouse_sk · date_from / date_to · is_current</p>
+          </div>
+        </details>
+        <details class="etl-step">
+          <summary><span class="step-no">06</span><span class="step-name">Факт остатков</span><span class="step-proc">dwh.sp_load_fact_inventory</span></summary>
+          <div class="step-body">
+            <p>Зерно: период × склад × материал. По зерну берётся последняя версия выгрузки; склад цепляется к версии, актуальной на дату факта; LEFT JOIN + COALESCE — строка создаётся всегда. UNIQUE исключает дубликаты.</p>
+            <p class="step-obj">ods → dwh.fact_inventory</p>
+          </div>
+        </details>
+        <details class="etl-step">
+          <summary><span class="step-no">07</span><span class="step-name">Факт цен</span><span class="step-proc">dwh.sp_load_fact_prices</span></summary>
+          <div class="step-body">
+            <p>Зерно: период × материал. Последняя версия цены, UNIQUE по бизнес-зерну — дубликатов нет.</p>
+            <p class="step-obj">ods → dwh.fact_prices</p>
           </div>
         </details>
         <details class="etl-step">
           <summary><span class="step-no">08</span><span class="step-name">Пересчёт витрин</span><span class="step-proc">datamart.sp_refresh_datamart</span></summary>
           <div class="step-body">
-            <p>Метрики и MoM по четырём уровням срезов через LAG по месяцам. Витрины читает Superset
-            без пересчёта в BI (Live-запросы, кеш выключен по ТЗ).</p>
+            <p>Метрики и MoM по четырём уровням срезов через LAG по месяцам. Витрины читает Superset без пересчёта в BI (Live-запросы, кеш выключен по ТЗ).</p>
             <p class="step-obj">dwh → datamart.turnover_metrics · datamart.inventory_monthly</p>
           </div>
         </details>
+      </div>ls>
       </div>
     </div>
   </section>
