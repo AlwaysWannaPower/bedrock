@@ -55,24 +55,41 @@ IF OBJECT_ID('elt.file_registry', 'U') IS NULL
     END;
 GO
 
-IF OBJECT_ID('elt.elt_log', 'U') IS NOT NULL
-    DROP TABLE elt.elt_log;
+IF OBJECT_ID('elt.elt_log', 'U') IS NULL
+    BEGIN
+        CREATE TABLE
+            elt.elt_log
+        (
+            log_id        INT IDENTITY (1,1) NOT NULL
+                CONSTRAINT PK_elt_elt_log PRIMARY KEY,
+            proc_name     NVARCHAR(200)      NOT NULL, -- имя процедуры
+            start_dt      DATETIME2          NOT NULL, -- время старта
+            end_dt        DATETIME2          NULL,     -- время завершения
+            status        NVARCHAR(20)       NOT NULL, -- RUNNING / SUCCESS / ERROR
+            rows_affected INT                NULL,     -- сколько строк обработано
+            error_msg     NVARCHAR(MAX)      NULL      -- текст ошибки (если была)
+        );
+    END;
 GO
 -- ----------------------------------------------------------------------------
--- 1. Журнал elt
---    Записываем старт/финиш каждой процедуры, статус и текст ошибки.
+-- 3. Очередь алертов
+--    Сюда пишется КАЖДОЕ падение ELT (независимо от того, работает ли почта).
+--    Почта может быть не настроена — алерт всё равно останется в базе.
+--    Это страховка: факт падения не теряется, даже если SMTP молчит.
 -- ----------------------------------------------------------------------------
-CREATE TABLE
-    elt.elt_log
-(
-    log_id        INT IDENTITY (1,1) NOT NULL
-        CONSTRAINT PK_elt_elt_log PRIMARY KEY,
-    proc_name     NVARCHAR(200)      NOT NULL, -- имя процедуры
-    start_dt      DATETIME2          NOT NULL, -- время старта
-    end_dt        DATETIME2          NULL,     -- время завершения
-    status        NVARCHAR(20)       NOT NULL, -- SUCCESS / ERROR
-    rows_affected INT                NULL,     -- сколько строк обработано
-    error_msg     NVARCHAR(MAX)      NULL      -- текст ошибки (если была)
-);
+IF OBJECT_ID('elt.alert_queue', 'U') IS NULL
+    BEGIN
+        CREATE TABLE
+            elt.alert_queue
+        (
+            alert_id    INT IDENTITY (1,1) NOT NULL
+                CONSTRAINT PK_elt_alert_queue PRIMARY KEY,
+            created_at  DATETIME2          NOT NULL
+                CONSTRAINT DF_elt_alert_queue_created DEFAULT (SYSDATETIME()),
+            severity    NVARCHAR(20)       NOT NULL, -- ERROR / WARNING
+            subject     NVARCHAR(200)      NOT NULL, -- короткая тема
+            body        NVARCHAR(MAX)      NULL      -- подробное описание
+        );
+    END;
 GO
 

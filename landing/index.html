@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BI_DWH — архитектура хранилища данных</title>
+<style>
+  :root {
+    --bg:      oklch(15% 0.015 255);
+    --surface: oklch(20% 0.02 255);
+    --surface-2: oklch(24% 0.02 255);
+    --fg:      oklch(94% 0.008 250);
+    --muted:   oklch(70% 0.02 250);
+    --border:  oklch(30% 0.02 255);
+    --accent:  oklch(74% 0.10 195);
+    --ok:      oklch(72% 0.13 160);
+    --accent-soft: color-mix(in oklch, var(--accent) 12%, transparent);
+    --font-display: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --font-body:    -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --font-mono:    ui-monospace, 'JetBrains Mono', 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
+    --fs-h1: clamp(34px, 4.6vw, 56px);
+    --fs-h2: clamp(26px, 3.2vw, 38px);
+    --fs-lead: 16.5px;
+    --fs-body: 15px;
+    --container: 1180px;
+    --gutter: 32px;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font-family: var(--font-body); font-size: var(--fs-body); line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  .container { max-width: var(--container); margin-inline: auto; padding-inline: var(--gutter); }
+  .section { padding-block: clamp(48px, 7vw, 84px); }
+  .eyebrow {
+    font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.09em;
+    text-transform: uppercase; color: var(--accent); margin-bottom: 10px;
+  }
+  h1 { font-size: var(--fs-h1); line-height: 1.08; letter-spacing: -0.02em; font-weight: 700; }
+  h2 { font-size: var(--fs-h2); line-height: 1.15; letter-spacing: -0.01em; font-weight: 700; }
+  .lead { font-size: var(--fs-lead); line-height: 1.65; color: var(--muted); max-width: 64ch; margin-top: 18px; }
+  .muted { color: var(--muted); }
+  .num { font-family: var(--font-mono); }
+  .rule { border: 0; border-top: 1px solid var(--border); margin: 0; }
+
+  /* topnav */
+  .topnav { position: sticky; top: 0; z-index: 50; backdrop-filter: blur(10px); background: color-mix(in oklch, var(--bg) 82%, transparent); border-bottom: 1px solid var(--border); }
+  .topnav-inner { display: flex; align-items: center; justify-content: space-between; height: 60px; gap: 16px; }
+  .logo { font-family: var(--font-mono); font-weight: 700; color: var(--fg); letter-spacing: 0.02em; }
+  .logo b { color: var(--accent); }
+  nav { display: flex; gap: 18px; flex-wrap: wrap; }
+  nav a { font-size: 13.5px; color: var(--muted); padding: 4px 2px; border-bottom: 2px solid transparent; }
+  nav a:hover { color: var(--fg); border-bottom-color: var(--accent); }
+
+  /* hero */
+  .hero { padding-block: clamp(64px, 10vh, 110px) clamp(48px, 8vh, 84px); }
+  .hero h1 { max-width: 20ch; }
+  .hero .lead { max-width: 62ch; }
+  .hero-cta { display: flex; gap: 12px; margin-top: 28px; flex-wrap: wrap; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 11px 20px; border-radius: var(--radius);
+    font-size: 14.5px; font-weight: 600; border: 1px solid transparent; cursor: pointer;
+  }
+  .btn-primary { background: var(--accent); color: oklch(18% 0.02 200); }
+  .btn-ghost { background: transparent; color: var(--fg); border-color: var(--border); }
+  .btn-ghost:hover { border-color: var(--accent); }
+
+  .pipeline {
+    margin-top: clamp(36px, 6vh, 56px);
+    display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px;
+    font-family: var(--font-mono); font-size: 12.5px;
+  }
+  .pipe-node {
+    flex: 1 1 130px; min-width: 130px;
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 10px 12px; background: var(--surface);
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .pipe-node .pn-name { color: var(--fg); font-weight: 600; }
+  .pipe-node .pn-role { color: var(--muted); font-size: 11px; }
+  .pipe-node.hl { border-color: var(--accent); background: var(--accent-soft); }
+  .pipe-arrow { align-self: center; color: var(--muted); padding: 0 2px; }
+
+  /* карточки */
+  .grid { display: grid; gap: 14px; }
+  .grid-3 { grid-template-columns: repeat(3, 1fr); }
+  .card {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--surface); padding: 18px 20px;
+  }
+  .card h3 { font-size: 16px; margin-bottom: 8px; }
+  .card h3 .tag { font-family: var(--font-mono); font-size: 11px; color: var(--accent); }
+  .card p { color: var(--muted); font-size: 14px; }
+  .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 26px; flex-wrap: wrap; }
+  .section-head .meta { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+
+  /* схема звезды */
+  .star { display: grid; gap: 14px; grid-template-columns: 1fr 1.15fr 1fr; align-items: center; }
+  .star-col, .star-mid { display: flex; flex-direction: column; gap: 14px; }
+  .star-box {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--surface); padding: 14px 16px;
+    font-family: var(--font-mono); font-size: 13px;
+  }
+  .star-box b { display: block; margin-bottom: 4px; }
+  .star-box small { color: var(--muted); font-size: 11.5px; }
+  .star-box.dim { border-color: color-mix(in oklch, var(--accent) 45%, var(--border)); }
+  .star-box.fact { border-color: var(--accent); background: var(--accent-soft); }
+  .star-line { text-align: center; color: var(--muted); font-family: var(--font-mono); font-size: 11px; }
+
+  /* метрики */
+  .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .metric { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 16px 18px; }
+  .metric .m-name { font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent); }
+  .metric .m-formula { margin-top: 8px; font-family: var(--font-mono); font-size: 13px; color: var(--fg); }
+  .metric .m-note { margin-top: 8px; font-size: 12.5px; color: var(--muted); }
+  table.roles { width: 100%; border-collapse: collapse; margin-top: 22px; font-size: 14px; }
+  table.roles th, table.roles td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); }
+  table.roles th { font-family: var(--font-mono); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+  table.roles td code { font-family: var(--font-mono); color: var(--accent); font-size: 13px; }
+
+  /* ETL-аккордеон */
+  .etl-step { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); margin-bottom: 10px; }
+  .etl-step[open] { border-color: color-mix(in oklch, var(--accent) 50%, var(--border)); }
+  .etl-step summary {
+    list-style: none; cursor: pointer; display: flex; align-items: center; gap: 14px;
+    padding: 14px 18px; user-select: none;
+  }
+  .etl-step summary::-webkit-details-marker { display: none; }
+  .etl-step summary::before { content: '▸'; color: var(--accent); font-size: 12px; transition: transform 0.2s; }
+  .etl-step[open] summary::before { transform: rotate(90deg); }
+  .step-no { font-family: var(--font-mono); font-size: 12px; color: var(--accent); width: 30px; flex-shrink: 0; }
+  .step-name { font-weight: 600; font-size: 15px; }
+  .step-proc { margin-left: auto; font-family: var(--font-mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .step-body { padding: 0 18px 16px 62px; }
+  .step-body p { color: var(--muted); max-width: 80ch; }
+  .step-obj { font-family: var(--font-mono); font-size: 12px; color: var(--accent); margin-top: 8px; }
+
+  /* запуск */
+  .term {
+    background: oklch(13% 0.015 255); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 18px 20px; font-family: var(--font-mono); font-size: 13.5px; overflow-x: auto;
+  }
+  .term .t-pr { color: var(--accent); }
+  .term .t-dim { color: var(--muted); }
+  .term .t-ok { color: var(--ok); }
+  .reliability { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 18px; }
+
+  /* данные */
+  .data-facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .fact { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 16px 18px; }
+  .fact .f-k { font-family: var(--font-mono); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+  .fact .f-v { margin-top: 6px; font-size: 15px; font-weight: 600; }
+  .fact .f-d { margin-top: 6px; font-size: 12.5px; color: var(--muted); }
+
+  /* footer */
+  footer { border-top: 1px solid var(--border); padding-block: 26px; margin-top: 40px; }
+  .footer-inner { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .footer-inner .muted { font-size: 13px; }
+
+  /* reveal / tooltip */
+  .reveal { opacity: 0; transform: translateY(14px); transition: opacity 0.6s ease, transform 0.6s ease; }
+  .reveal.is-visible { opacity: 1; transform: none; }
+  .tip {
+    position: fixed; z-index: 60; pointer-events: none; display: none;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 6px 10px; font-family: var(--font-mono); font-size: 12px; color: var(--fg);
+    max-width: 320px;
+  }
+  .tip.show { display: block; }
+
+  @media (max-width: 980px) {
+    .metric-grid, .reliability, .data-facts { grid-template-columns: repeat(2, 1fr); }
+    .star { grid-template-columns: 1fr; }
+    .step-proc { display: none; }
+    .step-body { padding-left: 18px; }
+  }
+  @media (max-width: 620px) {
+    .grid-3, .metric-grid, .reliability, .data-facts { grid-template-columns: 1fr; }
+    .topnav nav { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+    .reveal { opacity: 1; transform: none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topnav">
+  <div class="container topnav-inner">
+    <a class="logo" href="#hero">BI_<b>DWH</b></a>
+    <nav>
+      <a href="#layers">Слои</a>
+      <a href="#model">Модель</a>
+      <a href="#metrics">Метрики</a>
+      <a href="#etl">ETL</a>
+      <a href="#quickstart">Запуск</a>
+      <a href="#data">Данные</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+  <!-- HERO -->
+  <section class="section hero" id="hero">
+    <div class="container">
+      <p class="eyebrow">DWH + BI · MS SQL Server 2022 · Apache Superset 6.1</p>
+      <h1>Хранилище данных учёта запасов и оборачиваемости материалов</h1>
+      <p class="lead">Классический DWH по методологии Кимбалла. Вся обработка — хранимыми
+      процедурами на стороне СУБД: сырой приём данных, валидация с карантином, модель
+      «звезда» с SCD, предрассчитанные витрины. BI — тонкий клиент, который читает готовые
+      витрины без кеша и без тяжёлых агрегаций.</p>
+      <div class="hero-cta">
+        <a class="btn btn-primary" href="#layers">Слои данных</a>
+        <a class="btn btn-primary" href="#metrics">Метрики</a>
+        <a class="btn btn-ghost" href="#quickstart">Запуск одной командой</a>
+      </div>
+
+      <div class="pipeline" aria-label="Поток данных по слоям">
+        <div class="pipe-node"><span class="pn-name">ФАЙЛЫ</span><span class="pn-role">CSV / XLSX</span></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-node"><span class="pn-name">STAGING</span><span class="pn-role">сырьё как пришло</span></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-node hl"><span class="pn-name">ВАЛИДАЦИЯ</span><span class="pn-role">брак → карантин</span></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-node"><span class="pn-name">ODS</span><span class="pn-role">очищенные данные</span></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-node"><span class="pn-name">DWH</span><span class="pn-role">звезда · SCD</span></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-node"><span class="pn-name">DATAMART</span><span class="pn-role">KPI + MoM</span></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-node hl"><span class="pn-name">BI</span><span class="pn-role">Superset · Live</span></div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- 1. СЛОИ -->
+  <section class="section" id="layers">
+    <div class="container">
+      <div class="section-head reveal">
+        <div>
+          <p class="eyebrow">01 · Архитектура</p>
+          <h2>Слои данных: разделение ответственности</h2>
+        </div>
+        <span class="meta num">schema: staging · quarantine · ods · dwh · datamart · elt</span>
+      </div>
+      <div class="grid grid-3 reveal">
+        <div class="card">
+          <h3><span class="tag">staging</span></h3>
+          <p>Сырой приём: данные из файлов фиксируются «как пришли», без бизнес-логики и
+          приведения типов. Позволяет переиграть трансформацию, не трогая источник.</p>
+        </div>
+        <div class="card">
+          <h3><span class="tag">quarantine</span></h3>
+          <p>Карантин: строки, не прошедшие валидацию, сохраняются с исходными значениями
+          и причиной ошибки. Брак не теряется и не блокирует корректные данные.</p>
+        </div>
+        <div class="card">
+          <h3><span class="tag">ods</span></h3>
+          <p>Очищенный слой: типизированные, валидированные строки с уникальными
+          бизнес-ключами — «чистая правда» перед построением модели.</p>
+        </div>
+        <div class="card">
+          <h3><span class="tag">dwh</span></h3>
+          <p>Аналитическая модель Кимбалла: факты и измерения, суррогатные ключи,
+          SCD там, где нужна история. Источник для витрин.</p>
+        </div>
+        <div class="card">
+          <h3><span class="tag">datamart</span></h3>
+          <p>Витрины: предрассчитанные метрики и MoM по уровням срезов. BI читает готовое,
+          тяжёлые агрегации на стороне отображения запрещены по ТЗ.</p>
+        </div>
+        <div class="card">
+          <h3><span class="tag">elt</span></h3>
+          <p>Служебный слой: реестр файлов (SHA-256), журнал запусков, очередь алертов.
+          Инкрементальная загрузка и идемпотентность.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- 2. МОДЕЛЬ ДАННЫХ -->
+  <section class="section" id="model">
+    <div class="container">
+      <div class="section-head reveal">
+        <div>
+          <p class="eyebrow">02 · Модель данных</p>
+          <h2>Звезда: согласованные измерения и суррогатные ключи</h2>
+        </div>
+        <span class="meta num">Kimball · SCD2 для складов · SCD1 для материалов</span>
+      </div>
+      <div class="star reveal">
+        <div class="star-col">
+          <div class="star-box dim"><b>dim_date</b><small>календарь · date_key YYYYMMDD</small></div>
+          <div class="star-box dim"><b>dim_material</b><small>материалы · material_sk · SCD1</small></div>
+          <div class="star-box dim"><b>dim_warehouse</b><small>склады · warehouse_sk · SCD2 (история МОЛ/цеха/дирекции)</small></div>
+        </div>
+        <div class="star-mid">
+          <div class="star-line">▲</div>
+          <div class="star-box fact"><b>fact_inventory</b><small>зерно: период × склад × материал · остатки, приход, расход</small></div>
+          <div class="star-line">▲</div>
+          <div class="star-box fact"><b>fact_prices</b><small>зерно: период × материал · цена периода</small></div>
+        </div>
+        <div class="star-col">
+          <div class="star-box"><b>Принципы</b><small>согласованные измерения (dim_date, dim_material общие для обоих фактов) · суррогатные ключи вместо бизнес-ключей · заданная гранулярность</small></div>
+          <div class="star-box"><b>История</b><small>SCD применяется точечно: склад — SCD2 (версии с date_from/date_to/is_current), материал — SCD1 (перезапись)</small></div>
+          <div class="star-box"><b>Полнота</b><small>неизвестные склады из фактов получают UNKNOWN-плейсхолдеры — ни одна строка не теряется</small></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- 3. МЕТРИКИ -->
+  <section class="section" id="metrics">
+    <div class="container">
+      <div class="section-head reveal">
+        <div>
+          <p class="eyebrow">03 · Метрики</p>
+          <h2>Четыре показателя + MoM по каждому</h2>
+        </div>
+        <span class="meta num">формулы сверены с данными · 0 несовпадений</span>
+      </div>
+      <div class="metric-grid reveal">
+        <div class="metric">
+          <div class="m-name">Сумма запасов</div>
+          <div class="m-formula">Σ остаток_конец × цена_периода</div>
+          <div class="m-note">сколько денег «заморожено» в товаре на конец месяца</div>
+        </div>
+        <div class="metric">
+          <div class="m-name">Средний остаток</div>
+          <div class="m-formula">Σ (начало + конец)/2 × цена</div>
+          <div class="m-note">сколько в среднем лежит на складе за период</div>
+        </div>
+        <div class="metric">
+          <div class="m-name">Оборачиваемость, разы</div>
+          <div class="m-formula">расход_в_деньгах ÷ средний_остаток</div>
+          <div class="m-note">сколько раз запас «обернулся» за месяц</div>
+        </div>
+        <div class="metric">
+          <div class="m-name">Оборачиваемость, дни</div>
+          <div class="m-formula">30 × средний_остаток ÷ расход_в_деньгах</div>
+          <div class="m-note">за сколько дней запас израсходуется при текущем темпе</div>
+        </div>
+      </div>
+      <p class="lead" style="margin-top: 18px;">MoM (Month-over-Month) — изменение показателя к предыдущему месяцу:
+      <span class="num">(X_тек − X_пред) ÷ X_пред</span>. MoM считается для каждого уровня среза отдельно — доли не «смешиваются» между уровнями.</p>
+      <table class="roles reveal">
+        <thead><tr><th>Уровень среза</th><th>agg_level</th><th>Роль из ТЗ</th></tr></thead>
+        <tbody>
+          <tr><td>Вся компания</td><td><code>company</code></td><td>Генеральный директор</td></tr>
+          <tr><td>Дирекция</td><td><code>directorate</code></td><td>Директор по производству / закупкам</td></tr>
+          <tr><td>Цех</td><td><code>shop</code></td><td>Начальник цеха</td></tr>
+          <tr><td>Склад</td><td><code>warehouse</code></td><td>Начальник склада / менеджер по закупкам</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- 4. ETL -->
+  <section class="section" id="etl">
+    <div class="container">
+      <div class="section-head reveal">
+        <div>
+          <p class="eyebrow">04 · ETL-пайплайн</p>
+          <h2>Девять шагов, один оркестратор</h2>
+        </div>
+        <span class="meta num">elt.sp_master_etl</span>
+      </div>
+      <p class="lead" style="margin-bottom: 22px;">Каждый шаг логируется в <span class="num">elt.elt_log</span> —
+      RUNNING → SUCCESS или ERROR с текстом. При падении: алерт в <span class="num">elt.alert_queue</span>
+      (не зависит от почты) + письмо администратору через Database Mail.</p>
+      <div class="reveal">
+        <details class="etl-step" open>
+          <summary><span class="step-no">00</span><span class="step-name">Загрузка в STAGING</span><span class="step-proc">elt.sp_load_staging_from_import</span></summary>
+          <div class="step-body">
+            <p>BULK INSERT файлов из /import. Реестр <span class="num">elt.file_registry</span> хранит SHA-256: новый файл грузится, неизменённый пропускается, изменённый перезагружается. STAGING — сырьё как пришло, без бизнес-логики.</p>
+            <p class="step-obj">csv → staging.* · file_registry · статусы pending / loaded / failed</p>
+          </div>
+        </details>
+        <details class="etl-step">
+          <summary><span class="step-no">01</span><span class="step-name">Валидация обороток</span><span class="step-proc">elt.sp_validate_turnover</span></summary>
+          <div class="step-body">
+            <p>Типы, даты (Excel Serial и текст через <span class="num">elt.fn_parse_date</span>), бизнес-правила: остаток = начало + приход + расход, расход отрицательный. Брак — в карантин с причиной, корректные строки — в ODS.</p>
+            <p class="step-obj">staging.turnover → quarantine.turnover / ods.turnover</p>
+          </div>
+        </details>
+        <details class="etl-step">
+          <summary><span class="step-no">02</span><span class="step-name">Валидация цен</span><span class="step-proc">elt.sp_validate_prices</span></summary>
+          <div class="step-body">
+            <p>Цена &gt; 0, корректные даты; дубликаты внутри файлов — в карантин по ТЗ, в ODS идут только уникальные строки. Повторный запуск ничего не дублирует.</p>
+            <p class="step-obj">staging.prices → quarantine.prices / ods.prices</p>
+          </div>
+        </details>
+        <details class="etl-step">
+          <summary><span class="step-no">03</span><span class="step-name">Валидация складов</span><span class="step-proc">elt.sp_validate_warehouses</span></summary>
+          <div class="step-body">
+            <p>Повторные и конфликтующие версии склада (разные МОЛ на одну дату) — в карантин; уникальные — в ODS.</p>
+            <p class="step-obj">staging.warehouses → quarantine.warehouses / ods.warehouses</p>
+          </div>
+        </details>
+        <details class="etl-step">
+          <summary><span class="step-no">04</span><span class="step-name">Измерение материалов</span><span class="step-proc">dwh.sp_load_dim_material</span></summary>
+          <div class="step-body">
+            <p>SCD1: только актуальная единица измерения; история ЕИ не нужна для метрик.</p>
+            <p class="step-obj">ods → dwh.dim_material · material_sk</p>
+          </div>
+        </details>
+        <details class="etl-step">
+          <summary><span class="step-no">05</span><span class="step-name">Измерение складов</span><span class="step-proc">dwh.sp_load_dim_warehouse</span></summary>
+          <div class="step-body">
+            <p>SCD2: история МОЛ и цеха с датами действия; новая версия закрывает старую. Для складов из фактов без снимка в справочнике создаются UNKNOWN-плейсхолдеры.</p>
+            <p class="step-obj">ods → dwh.dim_warehouse · warehouse_sk · date_from / date_to · is_current</p>
+          </div>
+        </details>
+        <details class="etl-step">
+          <summary><span class="step-no">06</span><span class="step-name">Факт остатков</span><span class="step-proc">dwh.sp_load_fact_inventory</span></summary>
+          <div class="step-body">
+            <p>Зерно: период × склад × материал. По зерну берётся последняя версия выгрузки; склад цепляется к версии, актуальной на дату факта; LEFT JOIN + COALESCE — строка создаётся всегда. UNIQUE исключает дубликаты.</p>
+            <p class="step-obj">ods → dwh.fact_inventory</p>
+          </div>
+        </details>
+        <details class="etl-step">
+          <summary><span class="step-no">07</span><span class="step-name">Факт цен</span><span class="step-proc">dwh.sp_load_fact_prices</span></summary>
+          <div class="step-body">
+            <p>Зерно: период × материал. Последняя версия цены, UNIQUE по бизнес-зерну — дубликатов нет.</p>
+            <p class="step-obj">ods → dwh.fact_prices</p>
+          </div>
+        </details>
+        <details class="etl-step">
+          <summary><span class="step-no">08</span><span class="step-name">Пересчёт витрин</span><span class="step-proc">datamart.sp_refresh_datamart</span></summary>
+          <div class="step-body">
+            <p>Метрики и MoM по четырём уровням срезов через LAG по месяцам. Витрины читает Superset без пересчёта в BI (Live-запросы, кеш выключен по ТЗ).</p>
+            <p class="step-obj">dwh → datamart.turnover_metrics · datamart.inventory_monthly</p>
+          </div>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- 5. ЗАПУСК И НАДЁЖНОСТЬ -->
+  <section class="section" id="quickstart">
+    <div class="container">
+      <div class="section-head reveal">
+        <div>
+          <p class="eyebrow">05 · Запуск и надёжность</p>
+          <h2>Развёртывание одной командой</h2>
+        </div>
+      </div>
+      <div class="term reveal">
+        <div><span class="t-pr">$</span> cp .env.example .env</div>
+        <div><span class="t-pr">$</span> docker compose up -d --build</div>
+        <div class="t-dim">startup.sh: SQL Server → schema → agent → elt → datamart → views → mail → master ETL</div>
+        <div><span class="t-ok">✓ STARTUP INITIALIZATION SUCCESSFUL</span></div>
+        <div class="t-dim">→ http://localhost:8088 · admin / admin</div>
+      </div>
+      <div class="reliability reveal">
+        <div class="card">
+          <h3>Ночной прогон <span class="tag">SQL Agent</span></h3>
+          <p>Каждый день в 02:00: загрузка новых файлов + полный master ETL. SQL Agent — планировщик, бизнес-логика — в процедурах.</p>
+        </div>
+        <div class="card">
+          <h3>Логирование и алерты</h3>
+          <p>Каждый шаг — RUNNING / SUCCESS / ERROR в elt.elt_log. При падении — alert_queue (в базе) и письмо администратору через Database Mail.</p>
+        </div>
+        <div class="card">
+          <h3>Идемпотентность</h3>
+          <p>Повторный запуск не меняет счётчики слоёв: file_registry по хешам, NOT EXISTS-пропуски, UNIQUE-ключи, защита карантина от повторов.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- 6. ДАННЫЕ (последний блок) -->
+  <section class="section" id="data">
+    <div class="container">
+      <div class="section-head reveal">
+        <div>
+          <p class="eyebrow">06 · Данные</p>
+          <h2>Справочно: контрольный прогон (02.09.2026)</h2>
+        </div>
+        <span class="meta num">исходные файлы заказчика · демо-масштаб</span>
+      </div>
+      <p class="lead" style="margin-bottom: 22px;">49 файлов — это историческая (первичная) загрузка.
+      Система рассчитана на постоянную работу: новые месячные файлы и исправления подхватываются
+      инкрементально по SHA-256. Ниже — только справочные цифры контрольного прогона.</p>
+      <div class="data-facts reveal">
+        <div class="fact">
+          <div class="f-k">Историческая загрузка</div>
+          <div class="f-v num">49 файлов</div>
+          <div class="f-d">24 оборотки + 24 цены + 1 справочник складов за 2024–2025</div>
+        </div>
+        <div class="fact">
+          <div class="f-k">Строк в STAGING</div>
+          <div class="f-v num">~5,9 млн</div>
+          <div class="f-d">2,72 млн оборотки · 2,72 млн цены · 0,43 млн склады</div>
+        </div>
+        <div class="fact">
+          <div class="f-k">Факты</div>
+          <div class="f-v num">2,51 млн + 1,35 млн</div>
+          <div class="f-d">fact_inventory · fact_prices · дубликатов 0</div>
+        </div>
+        <div class="fact">
+          <div class="f-k">Карантин</div>
+          <div class="f-v num">~1,6 млн строк</div>
+          <div class="f-d">99% — дубликаты и конфликтующие версии в исходных файлах заказчика; свойство данных, а не системы</div>
+        </div>
+        <div class="fact">
+          <div class="f-k">UNKNOWN-склады</div>
+          <div class="f-v num">22 кода</div>
+          <div class="f-d">склады из обороток без снимка в справочнике — плейсхолдеры, данные не теряются</div>
+        </div>
+        <div class="fact">
+          <div class="f-k">Время ETL</div>
+          <div class="f-v num">≈ 8–10 мин</div>
+          <div class="f-d">демо-объём; повторный запуск идемпотентен</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="container footer-inner">
+    <span class="logo">BI_<b>DWH</b></span>
+    <span class="muted">Хранилище данных · MS SQL Server 2022 · Apache Superset 6.1 · Docker</span>
+    <span class="muted">© 2026 · презентация архитектуры</span>
+  </div>
+</footer>
+
+<div class="tip" id="tip"></div>
+
+<script>
+(function () {
+  'use strict';
+  var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  var links = document.querySelectorAll('a[href^="#"]');
+  Array.prototype.forEach.call(links, function (a) {
+    a.addEventListener('click', function (e) {
+      var id = a.getAttribute('href');
+      if (id.length < 2) return;
+      var el = document.querySelector(id);
+      if (!el) return;
+      e.preventDefault();
+      var y = el.getBoundingClientRect().top + window.scrollY - 70;
+      window.scrollTo({ top: y, behavior: reduceMotion ? 'auto' : 'smooth' });
+    });
+  });
+
+  var reveals = document.querySelectorAll('.reveal');
+  if (reduceMotion) {
+    Array.prototype.forEach.call(reveals, function (el) { el.classList.add('is-visible'); });
+  } else if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (en.isIntersecting) { en.target.classList.add('is-visible'); io.unobserve(en.target); }
+      });
+    }, { threshold: 0.1 });
+    Array.prototype.forEach.call(reveals, function (el) { io.observe(el); });
+  } else {
+    Array.prototype.forEach.call(reveals, function (el) { el.classList.add('is-visible'); });
+  }
+
+  var tip = document.getElementById('tip');
+  if (tip) {
+    var tipEls = document.querySelectorAll('[data-tip]');
+    Array.prototype.forEach.call(tipEls, function (el) {
+      el.addEventListener('mouseenter', function () { tip.textContent = el.getAttribute('data-tip'); tip.classList.add('show'); });
+      el.addEventListener('mousemove', function (e) { tip.style.left = (e.clientX + 14) + 'px'; tip.style.top = (e.clientY + 14) + 'px'; });
+      el.addEventListener('mouseleave', function () { tip.classList.remove('show'); });
+    });
+  }
+})();
+</script>
+</body>
+</html>

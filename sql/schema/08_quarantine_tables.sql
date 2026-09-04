@@ -1,13 +1,20 @@
 -- ============================================================================
 -- Файл: 08_quarantine_tables.sql
 -- Описание: Таблицы карантина для данных с ошибками
+--
+-- ВАЖНО про идемпотентность:
+--     Раньше таблицы здесь УДАЛЯЛИСЬ и создавались заново (DROP + CREATE).
+--     Это значило, что при каждом перезапуске контейнера
+--     история карантина стиралась.
+--
+--     Теперь таблицы создаются ТОЛЬКО если их ещё нет (IF NOT EXISTS),
+--     а строки добавляются инкрементально процедурами валидации.
 -- ============================================================================
 
 USE BI_DWH;
 GO
 
-IF OBJECT_ID('quarantine.turnover', 'U') IS NOT NULL DROP TABLE quarantine.turnover;
-GO
+IF OBJECT_ID('quarantine.turnover', 'U') IS NULL
 CREATE TABLE quarantine.turnover (
     quarantine_id     BIGINT      IDENTITY PRIMARY KEY ,
     file_name         NVARCHAR(255)     NOT NULL,
@@ -29,40 +36,34 @@ CREATE TABLE quarantine.turnover (
 ----------------------------------------------------------
     unit              NVARCHAR(100),
     material_id       NVARCHAR(100),
-
-    
-    
 );
 GO
 
-IF OBJECT_ID('quarantine.prices', 'U') IS NOT NULL DROP TABLE quarantine.prices;
-GO
+IF OBJECT_ID('quarantine.prices', 'U') IS NULL
 CREATE TABLE quarantine.prices (
     quarantine_id     BIGINT      IDENTITY PRIMARY KEY ,
     file_name         NVARCHAR(255)     NOT NULL,
     load_id           BIGINT            NOT NULL,
     quarantined_at    DATETIME2         NOT NULL  DEFAULT SYSDATETIME(),
 ----------------------------------------------------------
-    error_reason      NVARCHAR(500)     NOT NULL, 
+    error_reason      NVARCHAR(500)     NOT NULL,
 ----------------------------------------------------------
     date              NVARCHAR(100),
     start_date        NVARCHAR(100),
     end_date          NVARCHAR(100),
     material_id       NVARCHAR(100),
     price             NVARCHAR(100),
-    
 );
 GO
 
-IF OBJECT_ID('quarantine.warehouses', 'U') IS NOT NULL DROP TABLE quarantine.warehouses;
-GO
+IF OBJECT_ID('quarantine.warehouses', 'U') IS NULL
 CREATE TABLE quarantine.warehouses(
     quarantine_id     BIGINT      IDENTITY PRIMARY KEY ,
     file_name         NVARCHAR(255)     NOT NULL,
     load_id           BIGINT            NOT NULL,
     quarantined_at    DATETIME2         NOT NULL  DEFAULT SYSDATETIME(),
 ----------------------------------------------------------
-    error_reason      NVARCHAR(500)     NOT NULL, 
+    error_reason      NVARCHAR(500)     NOT NULL,
 ----------------------------------------------------------
     date              NVARCHAR(100),
     start_date        NVARCHAR(100),

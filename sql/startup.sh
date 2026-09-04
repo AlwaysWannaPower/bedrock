@@ -14,7 +14,9 @@
 #        schema/
 #        agent/
 #        elt/
+#        datamart/
 #        views/
+#        mail/
 #   4. Запуск главной ETL-процедуры:
 #
 #        elt.sp_master_etl
@@ -38,7 +40,11 @@
 #      │
 #      ├── elt/*.sql
 #      │
+#      ├── datamart/*.sql
+#      │
 #      ├── views/*.sql
+#      │
+#      ├── mail/*.sql
 #      │
 #      ├── EXEC elt.sp_master_etl
 #      │
@@ -165,6 +171,35 @@ log()
 
 
 # ==============================================================================
+# 2.5. ПЕРЕМЕННЫЕ SMTP ДЛЯ SQLCMD
+# ==============================================================================
+#
+# Почему это нужно:
+#
+#     SQL-скрипт настройки почты (sql/elt/11_elt_notify.sql) использует
+#     переменные подстановки sqlcmd:
+#
+#         $(SMTP_SERVER)
+#         $(SMTP_PORT)
+#         $(ADMIN_EMAIL)
+#         ...
+#
+#     Это НЕ переменные T-SQL. Их подставляет sqlcmd через параметр -v.
+#
+#     Раньше startup.sh запускал sqlcmd БЕЗ -v — переменные оставались
+#     пустыми строками, и почтовый модуль «не включался» при перезапуске
+#     контейнера (аккаунт создавался с пустым SMTP-сервером).
+#
+#     Теперь значения берутся из переменных окружения контейнера
+#     (которые docker-compose берёт из .env) и передаются в sqlcmd
+#     через флаги -v NAME=VALUE (см. run_sql и run_sql_query).
+#
+#     Если переменная окружения пустая — sqlcmd получит пустую строку,
+#     а SQL-скрипт корректно пропустит настройку почты (проверки LEN(...)).
+# ==============================================================================
+
+
+# ==============================================================================
 # 3. ФУНКЦИЯ ЗАПУСКА SQL-ФАЙЛА
 # ==============================================================================
 
@@ -199,6 +234,17 @@ run_sql()
     # -C
     #     Доверять сертификату SQL Server.
     #
+    # -b
+    #     ВАЖНО: без этого флага sqlcmd печатает SQL-ошибки в лог,
+    #     но завершается с кодом 0 — и скрипт ошибочно пишет SUCCESS.
+    #     С -b любая SQL-ошибка даёт ненулевой exit code,
+    #     и pipeline (set -o pipefail) корректно падает.
+    #
+    # -v "SMTP_...=" / -v "ADMIN_EMAIL="
+    #     Передаём SMTP-настройки в скрипты почтового модуля
+    #     (см. раздел 2.5 выше). Без этого $(SMTP_SERVER) и другие
+    #     переменные подстановки остаются пустыми, и почта не настраивается.
+    #
     # -i "$sql_file"
     #     Выполнить указанный SQL-файл.
     #
@@ -216,6 +262,14 @@ run_sql()
         -U sa \
         -P "$MSSQL_SA_PASSWORD" \
         -C \
+        -b \
+        -v "SMTP_SERVER=${SMTP_SERVER:-}" \
+        -v "SMTP_PORT=${SMTP_PORT:-}" \
+        -v "SMTP_FROM_EMAIL=${SMTP_FROM_EMAIL:-}" \
+        -v "SMTP_FROM_NAME=${SMTP_FROM_NAME:-}" \
+        -v "SMTP_USERNAME=${SMTP_USERNAME:-}" \
+        -v "SMTP_PASSWORD=${SMTP_PASSWORD:-}" \
+        -v "ADMIN_EMAIL=${ADMIN_EMAIL:-}" \
         -i "$sql_file" \
         2>&1 | tee -a "$LOGFILE"
     then
@@ -275,6 +329,9 @@ run_sql_query()
     #
     #   EXEC BI_DWH.elt.sp_master_etl;
     #
+    # SMTP-переменные (-v) передаём так же, как в run_sql,
+    # чтобы почтовые скрипты видели настройки из .env.
+    #
     # Если процедура завершится ошибкой,
     # благодаря pipefail функция тоже вернёт ошибку.
     if /opt/mssql-tools18/bin/sqlcmd \
@@ -282,6 +339,14 @@ run_sql_query()
         -U sa \
         -P "$MSSQL_SA_PASSWORD" \
         -C \
+        -b \
+        -v "SMTP_SERVER=${SMTP_SERVER:-}" \
+        -v "SMTP_PORT=${SMTP_PORT:-}" \
+        -v "SMTP_FROM_EMAIL=${SMTP_FROM_EMAIL:-}" \
+        -v "SMTP_FROM_NAME=${SMTP_FROM_NAME:-}" \
+        -v "SMTP_USERNAME=${SMTP_USERNAME:-}" \
+        -v "SMTP_PASSWORD=${SMTP_PASSWORD:-}" \
+        -v "ADMIN_EMAIL=${ADMIN_EMAIL:-}" \
         -Q "$query" \
         2>&1 | tee -a "$LOGFILE"
     then
@@ -479,18 +544,28 @@ log "============================================================"
 #   ↓
 # elt
 #   ↓
+# datamart
+#   ↓
 # views
+#   ↓
+# mail
 #
 # Например:
 #
-# schema создаёт таблицы
-# agent создаёт SQL Agent
-# elt создаёт ETL-процедуры
-
+# schema      создаёт схемы и таблицы
+# agent       создаёт SQL Agent job
+# elt         создаёт ETL-процедуры (и настройку Database Mail)
+# datamart    создаёт таблицы витрин и процедуру их пересчёта
+# views       создаёт представления над витринами
+# mail        создаёт и вызывает процедуру тестового письма
+#
+# Порядок mail ПОСЛЕ elt обязателен:
+# тестовое письмо использует профиль DWH Alerts,
+# который создаётся именно в elt/11_elt_notify.sql.
 #
 # Поэтому мы НЕ запускаем все .sql файлы одной кучей.
 
-for stage in schema agent mail elt
+for stage in schema agent elt datamart views mail
 do
 
     STAGE_DIR="$SCRIPTS_DIR/$stage"

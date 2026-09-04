@@ -7,6 +7,18 @@
 USE BI_DWH;
 GO
 
+-- ============================================================================
+-- ВАЖНО: явно включаем SET-параметры.
+--     Без QUOTED_IDENTIFIER ON INSERT в таблицы с фильтрованными
+--     индексами (например dwh.dim_warehouse) падает с ошибкой 1934,
+--     потому что sqlcmd по умолчанию выставляет QUOTED_IDENTIFIER OFF.
+-- ============================================================================
+SET ANSI_NULLS ON;
+GO
+
+SET QUOTED_IDENTIFIER ON;
+GO
+
 CREATE OR ALTER PROCEDURE dwh.sp_load_dim_material
 AS
 BEGIN

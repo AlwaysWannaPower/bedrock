@@ -18,14 +18,14 @@ BEGIN
     ;WITH dates AS
     (
         SELECT
-            CAST('2024-01-01' AS DATE) AS dt
+            CAST('2023-01-01' AS DATE) AS dt
 
         UNION ALL
 
         SELECT
             DATEADD(DAY, 1, dt)
         FROM dates
-        WHERE dt < '2025-12-31'
+        WHERE dt < '2026-12-31'
     )
     INSERT INTO dwh.dim_date
     (
@@ -79,7 +79,7 @@ BEGIN
 
     FROM dates
 
-    OPTION (MAXRECURSION 1000);
+    OPTION (MAXRECURSION 2000);
 
 END;
 GO

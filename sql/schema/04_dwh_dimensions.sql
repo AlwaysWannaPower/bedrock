@@ -169,19 +169,35 @@ GO
 --   дата = '2025-02-15'
 --
 -- Поэтому индексируем бизнес-ключ и период действия.
+--
+-- ВАЖНО: индексы создаются с проверкой существования (IF NOT EXISTS),
+-- чтобы повторный запуск скрипта (идемпотентный деплой) не падал
+-- с ошибкой «index already exists».
 -- ============================================================================
 
-CREATE INDEX IX_dim_warehouse_business_date
-ON dwh.dim_warehouse
-(
-    warehouse_code,
-    date_from,
-    date_to
-);
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.indexes
+    WHERE name = 'IX_dim_warehouse_business_date'
+      AND object_id = OBJECT_ID('dwh.dim_warehouse')
+)
+    CREATE INDEX IX_dim_warehouse_business_date
+    ON dwh.dim_warehouse
+    (
+        warehouse_code,
+        date_from,
+        date_to
+    );
 GO
 
 
-CREATE UNIQUE INDEX UX_dim_warehouse_current
-ON dwh.dim_warehouse (warehouse_code)
-WHERE is_current = 1;
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.indexes
+    WHERE name = 'UX_dim_warehouse_current'
+      AND object_id = OBJECT_ID('dwh.dim_warehouse')
+)
+    CREATE UNIQUE INDEX UX_dim_warehouse_current
+    ON dwh.dim_warehouse (warehouse_code)
+    WHERE is_current = 1;
 GO
