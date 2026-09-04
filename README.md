@@ -13,24 +13,63 @@
 ```bash
 # 1. Скопировать пример конфигурации и при необходимости поменять значения
 cp .env.example .env
+#    ⚠️ ВАЖНО: MSSQL_SA_PASSWORD и SUPERSET_SECRET_KEY должны совпадать с теми,
+#    что были у того, кто создавал backups/superset_data.tar.gz,
+#    иначе Superset не сможет расшифровать подключение к MSSQL из своего volume.
 
-# 2. Запустить ВСЮ систему (SQL Server + конвертер + Superset)
+# 2. [РЕКОМЕНДУЕТСЯ] Привязать предзаполненный volume Superset из архива backups/.
+#    В архиве: роли, учётки, RLS-правила, дашборд, чарты, datasets
+#    и подключение к MSSQL — ничего настраивать не нужно.
+#    (Пропусти шаг — Superset поднимется «пустым», только с admin.)
+docker compose down -v                                   # чистый старт: стирает старые volume
+docker volume create "$(basename "$PWD")_superset_data"   # имя = <имя папки проекта>_superset_data
+docker run --rm \
+  -v "$(basename "$PWD")_superset_data:/dest" \
+  -v "$(pwd)/backups/superset_data.tar.gz:/backup/superset_data.tar.gz:ro" \
+  alpine tar xzf /backup/superset_data.tar.gz -C /dest
+
+# 3. Запустить ВСЮ систему (SQL Server + конвертер + Superset)
 docker compose up -d --build
 
-# 3. Дождаться готовности (первый запуск: скачивание образов + ETL, 10–15 минут)
+# 4. Дождаться готовности (первый запуск: скачивание образов + ETL, 10–15 минут;
+#    данные BI_DWH mssql создаст сам, а Superset с архивом готов сразу)
 docker compose logs -f mssql
 ```
 
-> **⚠️ Про исходные данные:** Исходные `excel` файлы рассортированы по папкам ( `turnover/`, `prices/`, `warehouses/`) 
-> в git НЕ хранятся (в `.gitignore`). Для работы «одной командой» нужны исходные
-> Сервис "Конвертер" конвертирует `excel` файлы в `csv` формат с копированием структуры
-> ETL ожидают `csv` файлы по пути /data/сvs/
-> Ожидаемая структура:
+> **⚠️ Про исходные данные и структуру файлов:**
+> - Исходные `excel`-файлы (`data/excel/{turnover,prices,warehouses}/`) в git **не хранятся**
+>   (в `.gitignore`) — их передают отдельно и кладут в `data/excel/...`.
+> - Сервис **Converter** превращает `xlsx` → `csv`, копируя структуру каталогов
+>   (`data/excel/x/y/f.xlsx` → `data/csv/x/y/f.csv`, разделитель `;`, кодировка UTF-16).
+> - ETL в SQL Server читает `csv` только из трёх папок `data/csv/`:
 >```text
->/data/prices/*.csv
->/data/turnover/*.csv
->/data/warehouse/*.csv
+>data/csv/turnover/*.csv
+>data/csv/prices/*.csv
+>data/csv/warehouses/*.csv
 >```
+> - Поэтому `excel` кладут в соответствующую подпапку `data/excel/turnover|prices|warehouses`.
+
+**Если система уже запускалась без архива** (volume `*_superset_data` уже существует) —
+`down -v` не нужен, достаточно перезалить архив в существующий volume:
+
+```bash
+docker compose stop superset
+SUPERSET_VOL=$(docker volume ls -q | grep '_superset_data$' | head -1)
+docker run --rm \
+  -v "$SUPERSET_VOL:/dest" \
+  -v "$(pwd)/backups/superset_data.tar.gz:/backup/superset_data.tar.gz:ro" \
+  alpine tar xzf /backup/superset_data.tar.gz -C /dest
+docker compose start superset
+```
+
+> **💡 Имя volume зависит от имени папки проекта.** Если клонируешь репозиторий не в папку
+> `bedrock` (или задан `COMPOSE_PROJECT_NAME`), подставь `<имя-папки>_superset_data` в команды
+> выше либо задай единое имя: `export COMPOSE_PROJECT_NAME=bedrock` перед всеми `docker compose ...`.
+
+> **💡 Как проверить, что volume подхватился:** открой http://localhost:8088 и войди под любой
+> учёткой из архива: `admin@example.com` / `admin`, либо демо-роли (`gen_dir@gmail.com`,
+> `dir_directorate@gmail.com`, `manager@gmail.com`, `shop@gmail.com`, `warehouse@gmail.com`, пароль `12345678`).
+> У каждой роли — своя RLS-зона (см. `docs/Дашборд: фильтры, скопы и доступ.md`).
 
 После завершения инициализации в логе появится:
 
@@ -83,15 +122,22 @@ startup.sh
 │   └── mail/                # тестовое письмо при первом старте
 │
 ├── converter/               # Python-конвертер Excel → CSV (Polars)
-├── superset/                # конфигурация Apache Superset
+├── superset/                # конфигурация Apache Superset (Dockerfile, superset_config.py)
+├── dashboard/               # скриншоты дашборда + ZIP-экспорт из Superset
+├── backups/                 # архив volume Superset (роли, учётки, RLS, дашборд) — см. §1
 ├── data/                    # исходные данные (в git не хранятся)
-│   ├── excel/               #   исходные XLSX
+│   ├── excel/               #   исходные XLSX (кладут сюда)
 │   └── csv/                 #   CSV для загрузки (монтируется в /import)
 │
 └── docs/                    # документация
-    ├── Архитектура.md
+    ├── README.md            # индекс документации
+    ├── Архитектура.md       # архитектура, слои, ER-диаграмма, обоснование
     ├── Руководство пользователя.md
-    └── Отчёт о проверке пайплайна.md
+    ├── Сборка дашборда в Superset.md
+    ├── Рецепты чартов.md
+    ├── Дашборд: фильтры, скопы и доступ.md
+    ├── архитектура.png      # схема архитектуры (по ТЗ)
+    └── Отчёт_реализация_BI_DWH.docx   # Word-файл описания (по ТЗ)
 ```
 
 ---
@@ -248,6 +294,11 @@ ORDER BY send_request_date DESC;
 
 ## 8. Документация
 
-- `docs/Архитектура.md` — архитектура и инженерные решения
+- `docs/README.md` — индекс документации
+- `docs/Архитектура.md` — архитектура, слои БД, ER-диаграмма, обоснование решений
 - `docs/Руководство пользователя.md` — руководство пользователя (для заказчика)
+- `docs/Сборка дашборда в Superset.md`, `docs/Рецепты чартов.md` — сборка дашборда
+- `docs/Дашборд: фильтры, скопы и доступ.md` — фильтры, роли и RLS
+- `docs/архитектура.png` — схема архитектуры (формат сдачи по ТЗ)
+- `docs/Отчёт_реализация_BI_DWH.docx` — Word-файл описания архитектуры (формат сдачи по ТЗ)
 

@@ -242,9 +242,12 @@ BEGIN
             d.month_num,
 
             w.warehouse_code,
-            MAX(w.directorate)                 AS directorate,
-            MAX(w.shop_code)                   AS shop_code,
-            MAX(w.warehouse_type)              AS warehouse_type,
+            -- Явные заглушки вместо NULL: у складов-плейсхолдеров UNKNOWN
+            -- и складов без атрибутов в реестре нет дирекции/цеха, иначе
+            -- в фильтрах дашборда появляются «пустые» значения (NULL/'').
+            MAX(COALESCE(w.directorate, N'Не определена'))   AS directorate,
+            MAX(COALESCE(w.shop_code, N'—'))                 AS shop_code,
+            MAX(COALESCE(w.warehouse_type, N'UNKNOWN'))      AS warehouse_type,
 
             m.material_id,
             m.unit,
@@ -334,7 +337,7 @@ BEGIN
             i.month_key, i.year_num, i.month_num, dd.month_name,
             N'company' AS agg_level,
             N'ALL'     AS agg_key,
-            N'' AS directorate, N'' AS shop_code, N'' AS warehouse_code, NULL AS warehouse_type,
+            NULL AS directorate, NULL AS shop_code, NULL AS warehouse_code, NULL AS warehouse_type,
             SUM(i.stock_value)     AS stock_value,
             SUM(i.avg_stock_value) AS avg_stock_value,
             SUM(i.expense_value)   AS expense_value,
@@ -360,7 +363,7 @@ BEGIN
             i.month_key, i.year_num, i.month_num, dd.month_name,
             N'directorate' AS agg_level,
             i.directorate   AS agg_key,
-            i.directorate AS directorate, N'' AS shop_code, N'' AS warehouse_code, NULL AS warehouse_type,
+            i.directorate AS directorate, NULL AS shop_code, NULL AS warehouse_code, NULL AS warehouse_type,
             SUM(i.stock_value)     AS stock_value,
             SUM(i.avg_stock_value) AS avg_stock_value,
             SUM(i.expense_value)   AS expense_value,
@@ -390,7 +393,7 @@ BEGIN
             -- ISNULL: если у цеха нет дирекции, не даём NULL в ключ
             -- (конкатенация с NULL даёт NULL, а agg_key NOT NULL).
             ISNULL(i.directorate, N'') + N' | ' + i.shop_code AS agg_key,
-            i.directorate AS directorate, i.shop_code AS shop_code, N'' AS warehouse_code, NULL AS warehouse_type,
+            i.directorate AS directorate, i.shop_code AS shop_code, NULL AS warehouse_code, NULL AS warehouse_type,
             SUM(i.stock_value)     AS stock_value,
             SUM(i.avg_stock_value) AS avg_stock_value,
             SUM(i.expense_value)   AS expense_value,

@@ -400,9 +400,9 @@ BEGIN
         )
         SELECT
             t.warehouse_code,
-            NULL,
-            N'UNKNOWN',
-            NULL,
+            N'—',               -- shop_code: явная заглушка вместо NULL (иначе «пусто» в фильтрах)
+            N'UNKNOWN',         -- warehouse_type: видно, что атрибутов нет
+            N'Не определена',   -- directorate: явная заглушка вместо NULL
             NULL,
             NULL,
             CAST('1900-01-01' AS DATE),
