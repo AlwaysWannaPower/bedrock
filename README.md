@@ -2,7 +2,7 @@
 
 Проект реализует классическое хранилище данных **DWH + BI по методологии Кимбалла**:
 
-- **MS SQL Server 2022** — целевая СУБД: все этапы ETL/ELT, очистка данных, историчность справочников (SCD), расчёт метрик и витрин выполняются строго на стороне СУБД (по ТЗ).
+- **MS SQL Server 2022** — целевая СУБД: все этапы ETL/ELT, очистка данных, историчность справочников (SCD), расчёт метрик и витрин выполняются строго на стороне СУБД.
 - **Apache Superset 6.1.0** — тонкий BI-клиент: только отображение, кеширование запрещено, Live-запросы к готовым витринам.
 - **Docker Compose** — развёртывание всей системы **одной командой**.
 
@@ -17,16 +17,20 @@ cp .env.example .env
 # 2. Запустить ВСЮ систему (SQL Server + конвертер + Superset)
 docker compose up -d --build
 
-# 3. Дождаться готовности (первый запуск: скачивание образов + ETL, 5–15 минут)
+# 3. Дождаться готовности (первый запуск: скачивание образов + ETL, 10–15 минут)
 docker compose logs -f mssql
 ```
 
-> **⚠️ Про исходные данные:** файлы `data/csv/` (482 МБ) и `data/excel/` (44 МБ)
+> **⚠️ Про исходные данные:** Исходные `excel` файлы рассортированы по папкам ( `turnover/`, `prices/`, `warehouses/`) 
 > в git НЕ хранятся (в `.gitignore`). Для работы «одной командой» нужны исходные
-> CSV в папке `data/csv/` (структура: `turnover/`, `prices/`, `warehouses/`).
-> Если данные переданы отдельным архивом — распакуй его в корень проекта так,
-> чтобы существовал путь `data/csv/turnover/*.csv`. Без данных ETL загрузит
-> пустые витрины.
+> Сервис "Конвертер" конвертирует `excel` файлы в `csv` формат с копированием структуры
+> ETL ожидают `csv` файлы по пути /data/сvs/
+> Ожидаемая структура:
+>```text
+>/data/prices/*.csv
+>/data/turnover/*.csv
+>/data/warehouse/*.csv
+>```
 
 После завершения инициализации в логе появится:
 
@@ -183,9 +187,9 @@ startup.sh
 | `agg_level` | Роль |
 |---|---|
 | `company` | Генеральный директор (вся компания) |
-| `directorate` | Директор по производству / закупкам (своя дирекция) |
+| `directorate` | Директор по производству / закупкам (своя дирекция); менеджер по закупкам (срез «дирекция закупок») |
 | `shop` | Начальник цеха |
-| `warehouse` | Начальник склада / менеджер по закупкам |
+| `warehouse` | Начальник склада |
 
 **Метрики (формулы):**
 
@@ -204,9 +208,12 @@ startup.sh
 SQL Agent job `BI_DWH_Nightly_ETL` запускается **каждый день в 02:00** и выполняет:
 
 ```sql
-EXEC BI_DWH.elt.sp_load_staging_from_import;
 EXEC BI_DWH.elt.sp_master_etl;
 ```
+
+Загрузка staging (`elt.sp_load_staging_from_import`) — шаг 0 внутри `sp_master_etl`,
+поэтому любой сбой ночного прогона (включая сбой загрузки файлов) попадает в
+`elt.elt_log`, `elt.alert_queue` и отправляется администратору по почте.
 
 Включить Agent можно в `.env`: `MSSQL_AGENT_ENABLED=True`.
 
@@ -239,58 +246,8 @@ ORDER BY send_request_date DESC;
 
 ---
 
-## 8. Как проверить, что всё работает
-
-```bash
-docker compose exec mssql /opt/mssql-tools18/bin/sqlcmd \
-  -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C -d BI_DWH -Q "SELECT ..."
-```
-
-Ключевые проверки:
-
-```sql
--- 1. Счётчики по слоям
-SELECT 'staging.turnover' t, COUNT(*) c FROM staging.turnover
-UNION ALL SELECT 'staging.prices', COUNT(*) FROM staging.prices
-UNION ALL SELECT 'staging.warehouses', COUNT(*) FROM staging.warehouses
-UNION ALL SELECT 'ods.turnover', COUNT(*) FROM ods.turnover
-UNION ALL SELECT 'ods.prices', COUNT(*) FROM ods.prices
-UNION ALL SELECT 'ods.warehouses', COUNT(*) FROM ods.warehouses
-UNION ALL SELECT 'dwh.fact_inventory', COUNT(*) FROM dwh.fact_inventory
-UNION ALL SELECT 'dwh.fact_prices', COUNT(*) FROM dwh.fact_prices
-UNION ALL SELECT 'datamart.turnover_metrics', COUNT(*) FROM datamart.turnover_metrics;
-
--- 2. Ошибки ETL
-SELECT * FROM elt.elt_log WHERE status = N'ERROR' ORDER BY start_dt DESC;
-
--- 3. Карантин (сколько и почему)
-SELECT error_reason, COUNT(*) FROM quarantine.prices GROUP BY error_reason;
-SELECT error_reason, COUNT(*) FROM quarantine.turnover GROUP BY error_reason;
-
--- 4. Дубликаты фактов (должно быть пусто)
-SELECT date_key_start, date_key_end, material_sk, COUNT(*) c
-FROM dwh.fact_prices GROUP BY date_key_start, date_key_end, material_sk HAVING COUNT(*) > 1;
-
--- 5. Сумма запасов по месяцам (компания)
-SELECT month_key, stock_value FROM datamart.turnover_metrics
-WHERE agg_level = N'company' ORDER BY month_key;
-```
-
----
-
-## 9. Ограничения и замечания
-
-- Исходные данные (`data/`) и `.env` в git не хранятся (см. `.gitignore`).
-- Демо-датасет: 49 файлов (24 оборотки + 24 цены + 1 склады), ~5,9 млн строк в STAGING.
-- Карантин: ~46% строк цен — точные дубликаты внутри файлов; ~79% строк складов — повторные/конфликтующие версии (разные МОЛ на одну дату). По ТЗ дубликаты → карантин, в ODS идут только уникальные строки.
-- 22 кода складов из обороток отсутствуют в файле «Склады» — для них создаются плейсхолдеры `UNKNOWN` (ни одна строка не теряется).
-- Объёмы учебные; для продакшена понадобятся партиционирование и более тонкий инкремент.
-
----
-
-## 10. Документация
+## 8. Документация
 
 - `docs/Архитектура.md` — архитектура и инженерные решения
 - `docs/Руководство пользователя.md` — руководство пользователя (для заказчика)
-- `docs/Отчёт о проверке пайплайна.md` — результаты проверки по ТЗ (PASS/FAIL)
-- `learn/` — обучающие материалы по проекту
+

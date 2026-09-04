@@ -98,23 +98,32 @@ BEGIN
                NULLIF(TRIM(s.unit), '')
                                 AS unit,
 
+               -- ВАЖНО: конвертируем количества в DECIMAL(18,3), а не (18,2).
+               --
+               -- В исходных данных заказчика есть количества с ТРЕМЯ знаками
+               -- после запятой (0.482, 0.003 и т.п.), а ODS хранит DECIMAL(18,3).
+               -- Если округлить до 2 знаков ДО проверки баланса, то строки,
+               -- у которых баланс сходится точно, из-за округления «разъезжаются»
+               -- и ложно уходят в карантин «Несоответствие остатков и движений»
+               -- (на полном датасете это 1 717 корректных строк).
+               -- Поэтому здесь сохраняем полную точность (3 знака).
                TRY_CONVERT(
-                   DECIMAL(18, 2),
+                   DECIMAL(18, 3),
                        s.balance_start
                )                AS balance_start,
 
                TRY_CONVERT(
-                   DECIMAL(18, 2),
+                   DECIMAL(18, 3),
                        s.income_qty
                )                AS income_qty,
 
                TRY_CONVERT(
-                   DECIMAL(18, 2),
+                   DECIMAL(18, 3),
                        s.expense_qty
                )                AS expense_qty,
 
                TRY_CONVERT(
-                   DECIMAL(18, 2),
+                   DECIMAL(18, 3),
                        s.balance_end
                )                AS balance_end
 
@@ -230,7 +239,44 @@ BEGIN
 
 
         -- ================================================================
-        -- 3. Невалидные строки -> QUARANTINE
+        -- 3. Дубликаты внутри STAGING (защита бизнес-ключа ODS)
+        -- ================================================================
+        --
+        -- Если в одном и том же staging-батче встречаются две строки
+        -- с одинаковым бизнес-ключом (date, material_id, warehouse_code,
+        -- start_date, end_date), INSERT в ods.turnover упал бы на
+        -- UQ_ods_turnover_business и остановил весь master ETL.
+        -- Поэтому все повторы, кроме первой строки (наименьший load_id),
+        -- помечаем как «Дубликат строки в staging» и отправляем в карантин.
+        -- (Тот же механизм, что в sp_validate_prices / sp_validate_warehouses.)
+
+        WITH duplicates AS
+                 (SELECT load_id,
+
+                         ROW_NUMBER() OVER
+                             (
+                             PARTITION BY
+                             date,
+                             material_id,
+                             warehouse_code,
+                             start_date,
+                             end_date
+                             ORDER BY load_id
+                             ) AS rn
+
+                  FROM #data
+                  WHERE error_reason IS NULL)
+
+        UPDATE d
+        SET error_reason = N'Дубликат строки в staging'
+        FROM #data AS d
+                 INNER JOIN duplicates AS x
+                            ON x.load_id = d.load_id
+        WHERE x.rn > 1;
+
+
+        -- ================================================================
+        -- 4. Невалидные строки -> QUARANTINE
         -- ================================================================
         --
         -- Защита от повторного карантина: load_id, который уже лежит
@@ -279,7 +325,7 @@ BEGIN
 
 
         -- ================================================================
-        -- 4. Валидные строки -> ODS
+        -- 5. Валидные строки -> ODS
         -- ================================================================
 
         INSERT INTO ods.turnover

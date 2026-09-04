@@ -3,6 +3,16 @@
 -- Описание: Ночной SQL Agent Job — ежедневная инкрементальная загрузка (п. 7.b ТЗ).
 --           Расписание: каждый день в 02:00.
 --           Требует MSSQL_AGENT_ENABLED=True (уже в docker-compose / .env).
+--
+-- ВАЖНО про один шаг:
+--     Job вызывает ТОЛЬКО elt.sp_master_etl. Загрузка staging
+--     (elt.sp_load_staging_from_import) — это шаг 0 внутри master,
+--     и именно master логирует каждый шаг в elt.elt_log, пишет алерт
+--     в elt.alert_queue и шлёт письмо администратору при ЛЮБОМ сбое
+--     (включая сбой загрузки файлов). Если бы job вызывал загрузку
+--     staging отдельным шагом ДО master, то при сбое файла шаг падал бы
+--     раньше, чем запускается master, и уведомление администратору
+--     не отправлялось бы (нарушение п. 7.d ТЗ).
 -- ============================================================================
 
 USE msdb;
@@ -27,11 +37,10 @@ BEGIN TRY
 
     EXEC msdb.dbo.sp_add_jobstep
         @job_id = @job_id,
-        @step_name = N'Load staging + ETL master',
+        @step_name = N'Master ETL (включает загрузку staging)',
         @subsystem = N'TSQL',
         @database_name = N'BI_DWH',
         @command = N'
-EXEC BI_DWH.elt.sp_load_staging_from_import;
 EXEC BI_DWH.elt.sp_master_etl;
 ',
         @on_success_action = 1, -- Quit with success
